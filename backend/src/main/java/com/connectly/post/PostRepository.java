@@ -10,10 +10,16 @@ import java.util.List;
 
 public interface PostRepository extends JpaRepository<Post, Long> {
 
-    Page<Post> findByAuthorIdOrderByCreatedAtDesc(Long authorId, Pageable pageable);
+    /** Authors are join-fetched: rendering a page costs 1 query, not 1+N. */
+    @Query("""
+            select p from Post p join fetch p.author
+            where p.author.id = :authorId
+            order by p.createdAt desc
+            """)
+    Page<Post> findByAuthorIdOrderByCreatedAtDesc(@Param("authorId") Long authorId, Pageable pageable);
 
     @Query("""
-            select p from Post p
+            select p from Post p join fetch p.author
             where p.author.id in :authorIds
               and (p.visibility = com.connectly.post.Post$Visibility.PUBLIC
                    or p.visibility = com.connectly.post.Post$Visibility.FOLLOWERS)
@@ -21,10 +27,15 @@ public interface PostRepository extends JpaRepository<Post, Long> {
             """)
     Page<Post> feedFor(@Param("authorIds") List<Long> authorIds, Pageable pageable);
 
-    Page<Post> findByVisibilityOrderByCreatedAtDesc(Post.Visibility visibility, Pageable pageable);
+    @Query("""
+            select p from Post p join fetch p.author
+            where p.visibility = :visibility
+            order by p.createdAt desc
+            """)
+    Page<Post> findByVisibilityOrderByCreatedAtDesc(@Param("visibility") Post.Visibility visibility, Pageable pageable);
 
     @Query("""
-            select p from Post p
+            select p from Post p join fetch p.author
             where p.visibility = com.connectly.post.Post$Visibility.PUBLIC
               and lower(p.content) like lower(concat('%', :term, '%'))
             order by p.createdAt desc

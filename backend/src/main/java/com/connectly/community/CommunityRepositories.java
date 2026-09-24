@@ -28,5 +28,6 @@ interface ChannelRepository extends JpaRepository<Channel, Long> {
 }
 
 interface ChannelMessageRepository extends JpaRepository<ChannelMessage, Long> {
-    List<ChannelMessage> findByChannelIdOrderByIdDesc(Long channelId, Pageable pageable);
+    @Query("select m from ChannelMessage m join fetch m.sender where m.channel.id = :channelId order by m.id desc")
+    List<ChannelMessage> findByChannelIdOrderByIdDesc(@Param("channelId") Long channelId, Pageable pageable);
 }

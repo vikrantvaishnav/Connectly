@@ -9,7 +9,8 @@ import org.springframework.data.repository.query.Param;
 
 interface VoiceParticipantRepository extends JpaRepository<VoiceParticipant, Long> {
     Optional<VoiceParticipant> findByRoomIdAndUserId(Long roomId, Long userId);
-    List<VoiceParticipant> findByRoomId(Long roomId);
+    @Query("select p from VoiceParticipant p join fetch p.user where p.room.id = :roomId")
+    List<VoiceParticipant> findByRoomId(@Param("roomId") Long roomId);
     boolean existsByRoomIdAndUserId(Long roomId, Long userId);
 
     /** Batch participant counts for the open-rooms list (one query instead of N). */
