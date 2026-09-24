@@ -51,7 +51,10 @@ public class CommunityService {
     // ---- helpers ----
 
     private String nameOf(User u) {
-        UserProfile p = profiles.findByUserId(u.getId()).orElse(null);
+        return displayOf(u, profiles.findByUserId(u.getId()).orElse(null));
+    }
+
+    private String displayOf(User u, UserProfile p) {
         String n = p == null ? null
                 : java.util.stream.Stream.of(p.getFirstName(), p.getLastName())
                     .filter(s -> s != null && !s.isBlank())
@@ -127,8 +130,13 @@ public class CommunityService {
         for (CommunityMember m : members.findAllMemberships(me.getId())) {
             myRoles.put(m.getCommunity().getId(), m.getRole().name());
         }
-        return communities.findAllByOrderByCreatedAtDesc(PageRequest.of(0, 50)).stream()
-                .map(c -> toView(c, me, members.countByCommunityId(c.getId()), myRoles.get(c.getId())))
+        List<Community> list = communities.findAllWithOwner(PageRequest.of(0, 50));
+        Map<Long, Long> counts = new HashMap<>();
+        for (Object[] row : members.countByCommunityIdIn(list.stream().map(Community::getId).toList())) {
+            counts.put((Long) row[0], (Long) row[1]);
+        }
+        return list.stream()
+                .map(c -> toView(c, me, counts.getOrDefault(c.getId(), 0L), myRoles.get(c.getId())))
                 .toList();
     }
 
@@ -206,10 +214,15 @@ public class CommunityService {
     public List<MemberView> members(User me, long communityId) {
         Community c = requireCommunity(communityId);
         requireMember(c, me);
-        return members.findAll().stream()
-                .filter(m -> m.getCommunity().getId().equals(communityId))
+        List<CommunityMember> list = members.findByCommunityId(communityId);
+        Map<Long, UserProfile> profileById = new HashMap<>();
+        for (UserProfile p : profiles.findByUserIdIn(
+                list.stream().map(m -> m.getUser().getId()).toList())) {
+            profileById.put(p.getUserId(), p);
+        }
+        return list.stream()
                 .map(m -> new MemberView(m.getUser().getId(), m.getUser().getUsername(),
-                        nameOf(m.getUser()), m.getRole().name()))
+                        displayOf(m.getUser(), profileById.get(m.getUser().getId())), m.getRole().name()))
                 .toList();
     }
 

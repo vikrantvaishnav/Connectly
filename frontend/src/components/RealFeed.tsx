@@ -205,6 +205,9 @@ export function RealFeed() {
       pushToast('Image too large (max 5 MB)', '⚠️')
       return
     }
+    // Instant local preview — no waiting for the upload round-trip.
+    const localUrl = URL.createObjectURL(f)
+    setImagePreview(localUrl)
     setUploading(true)
     try {
       const fd = new FormData()
@@ -214,7 +217,10 @@ export function RealFeed() {
       })
       setImageUrl(data.url)
       setImagePreview(data.url)
+      URL.revokeObjectURL(localUrl)
     } catch (e) {
+      setImagePreview(null)
+      URL.revokeObjectURL(localUrl)
       pushToast(apiErrorMessage(e), '⚠️')
     } finally {
       setUploading(false)

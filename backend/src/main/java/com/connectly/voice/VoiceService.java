@@ -7,6 +7,7 @@ import com.connectly.user.UserProfile;
 import com.connectly.user.UserProfileRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -30,7 +31,7 @@ public class VoiceService {
 
     // ---- DTOs ----
 
-    public record RoomView(long id, String name, String hostUsername, String status, int participantCount, Instant createdAt) {}
+    public record RoomView(long id, String name, String hostUsername, String status, int participantCount, Instant createdAt, Long communityId) {}
 
     public record ParticipantView(long userId, String username, String name, boolean muted) {}
 
@@ -50,7 +51,7 @@ public class VoiceService {
     private RoomView toRoomView(VoiceRoom r) {
         int count = participants.findByRoomId(r.getId()).size();
         return new RoomView(r.getId(), r.getName(), r.getHost().getUsername(),
-                r.getStatus().name(), count, r.getCreatedAt());
+                r.getStatus().name(), count, r.getCreatedAt(), r.getCommunityId());
     }
 
     /** Broadcasts the current participant list to everyone in the room topic. */
@@ -79,8 +80,17 @@ public class VoiceService {
 
     @Transactional(readOnly = true)
     public List<RoomView> listOpen() {
-        return rooms.findByStatusOrderByCreatedAtDesc(VoiceRoom.Status.OPEN).stream()
-                .map(this::toRoomView)
+        List<VoiceRoom> open = rooms.findByStatusOrderByCreatedAtDesc(VoiceRoom.Status.OPEN);
+        if (open.isEmpty()) return List.of();
+        // batch participant counts (1 query instead of N)
+        Map<Long, Long> counts = new java.util.HashMap<>();
+        for (Object[] row : participants.countByRoomIdIn(open.stream().map(VoiceRoom::getId).toList())) {
+            counts.put((Long) row[0], (Long) row[1]);
+        }
+        return open.stream()
+                .map(r -> new RoomView(r.getId(), r.getName(), r.getHost().getUsername(),
+                        r.getStatus().name(), counts.getOrDefault(r.getId(), 0L).intValue(),
+                        r.getCreatedAt(), r.getCommunityId()))
                 .toList();
     }
 

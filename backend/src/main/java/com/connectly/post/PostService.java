@@ -159,10 +159,7 @@ public class PostService {
     public PostDtos.PostPage explore(int page, int size) {
         Page<Post> result = posts.findByVisibilityOrderByCreatedAtDesc(Post.Visibility.PUBLIC,
                 PageRequest.of(page, Math.min(size, 50)));
-        List<PostDtos.PostDto> list = result.getContent().stream()
-                .map(p -> toDto(p, null, likes.countByPostId(p.getId()), comments.countByPostId(p.getId()), false))
-                .toList();
-        return new PostDtos.PostPage(list, page, size, result.hasNext());
+        return toPage(result, null);
     }
 
     @Transactional(readOnly = true)
@@ -171,21 +168,17 @@ public class PostService {
                 .orElseThrow(() -> ApiException.notFound("User not found"));
         Page<Post> result = posts.findByAuthorIdOrderByCreatedAtDesc(author.getId(),
                 PageRequest.of(page, Math.min(size, 50)));
-        List<PostDtos.PostDto> visible = result.getContent().stream()
-                .map(p -> {
+        List<Post> visible = result.getContent().stream()
+                .filter(p -> {
                     try {
                         requireCanView(p, viewer);
+                        return true;
                     } catch (ApiException e) {
-                        return null; // skip posts this viewer can't see
+                        return false; // skip posts this viewer can't see
                     }
-                    return toDto(p, viewer,
-                            likes.countByPostId(p.getId()),
-                            comments.countByPostId(p.getId()),
-                            viewer != null && likes.existsByPostIdAndUserId(p.getId(), viewer.getId()));
                 })
-                .filter(Objects::nonNull)
                 .toList();
-        return new PostDtos.PostPage(visible, page, size, result.hasNext());
+        return new PostDtos.PostPage(mapPosts(visible, viewer), page, size, result.hasNext());
     }
 
     // ---------- authorization ----------
@@ -213,12 +206,13 @@ public class PostService {
         }
     }
 
-    // ---------- mapping (batch profile loads — no N+1) ----------
+    // ---------- mapping (batched — 4 queries per page, not per post) ----------
 
     private Map<Long, UserProfile> profileMap(List<Long> userIds) {
         Map<Long, UserProfile> map = new HashMap<>();
-        for (Long uid : userIds) {
-            profiles.findByUserId(uid).ifPresent(p -> map.put(uid, p));
+        if (userIds.isEmpty()) return map;
+        for (UserProfile p : profiles.findByUserIdIn(userIds)) {
+            map.put(p.getUserId(), p);
         }
         return map;
     }
@@ -231,13 +225,38 @@ public class PostService {
         return PostDtos.PostDto.from(p, author, likeCount, commentCount, likedByMe, canEdit);
     }
 
-    private PostDtos.PostPage toPage(Page<Post> result, User viewer) {
-        List<PostDtos.PostDto> list = result.getContent().stream()
-                .map(p -> toDto(p, viewer,
-                        likes.countByPostId(p.getId()),
-                        comments.countByPostId(p.getId()),
-                        viewer != null && likes.existsByPostIdAndUserId(p.getId(), viewer.getId())))
+    /** Maps a page of posts using batched lookups: profiles, like counts, comment counts, liked-by-me. */
+    private List<PostDtos.PostDto> mapPosts(List<Post> content, User viewer) {
+        if (content.isEmpty()) return List.of();
+        List<Long> postIds = content.stream().map(Post::getId).toList();
+        List<Long> authorIds = content.stream().map(p -> p.getAuthor().getId()).distinct().toList();
+        Map<Long, UserProfile> profileById = profileMap(authorIds);
+        Map<Long, Long> likeCounts = new HashMap<>();
+        for (Object[] row : likes.countByPostIdIn(postIds)) {
+            likeCounts.put((Long) row[0], (Long) row[1]);
+        }
+        Map<Long, Long> commentCounts = new HashMap<>();
+        for (Object[] row : comments.countByPostIdIn(postIds)) {
+            commentCounts.put((Long) row[0], (Long) row[1]);
+        }
+        java.util.Set<Long> likedByMe = viewer != null
+                ? new java.util.HashSet<>(likes.findPostIdsLikedBy(viewer.getId(), postIds))
+                : java.util.Set.of();
+        return content.stream()
+                .map(p -> {
+                    PostDtos.AuthorDto author = PostDtos.AuthorDto.from(p.getAuthor(), profileById.get(p.getAuthor().getId()));
+                    boolean canEdit = viewer != null &&
+                            (viewer.getId().equals(p.getAuthor().getId()) || viewer.getRole() == User.Role.ADMIN);
+                    return PostDtos.PostDto.from(p, author,
+                            likeCounts.getOrDefault(p.getId(), 0L),
+                            commentCounts.getOrDefault(p.getId(), 0L),
+                            likedByMe.contains(p.getId()), canEdit);
+                })
                 .toList();
-        return new PostDtos.PostPage(list, result.getNumber(), result.getSize(), result.hasNext());
+    }
+
+    private PostDtos.PostPage toPage(Page<Post> result, User viewer) {
+        return new PostDtos.PostPage(mapPosts(result.getContent(), viewer),
+                result.getNumber(), result.getSize(), result.hasNext());
     }
 }

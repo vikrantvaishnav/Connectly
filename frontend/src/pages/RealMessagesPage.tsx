@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useParams } from 'react-router-dom'
 import { Client } from '@stomp/stompjs'
-import { api, apiErrorMessage, getAccessToken } from '../lib/api'
+import { api, apiErrorMessage, getAccessToken, wsUrl } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { useAuthStore } from '../store/authStore'
 import { Avatar } from '../components/Avatar'
@@ -73,7 +73,7 @@ export function RealMessagesPage() {
   useEffect(() => {
     if (!me?.id) return
     const client = new Client({
-      brokerURL: `ws://${location.host}/ws/chat`,
+      brokerURL: wsUrl(),
       connectHeaders: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
       reconnectDelay: 3000,
       onConnect: () => {
@@ -124,13 +124,26 @@ export function RealMessagesPage() {
     e.preventDefault()
     const text = draft.trim()
     if (!text || !conversationId) return
+    // Optimistic: render my message instantly; the round-trip to Singapore
+    // (database save + WebSocket broadcast) replaces it with the real record.
+    const temp: MessageView = {
+      id: -Date.now(),
+      senderId: me?.id ?? 0,
+      senderUsername: me?.username ?? 'me',
+      content: text,
+      createdAt: new Date().toISOString(),
+      mine: true,
+    }
+    setMessages((m) => [...m, temp])
+    setDraft('')
     setSending(true)
     try {
       const { data } = await api.post<MessageView>(`/conversations/${conversationId}/messages`, { content: text })
-      setMessages((m) => [...m, data])
-      setDraft('')
+      setMessages((m) => m.map((x) => (x.id === temp.id ? data : x)))
       void loadInbox()
     } catch (err) {
+      setMessages((m) => m.filter((x) => x.id !== temp.id))
+      setDraft(text)
       useAppStore.getState().pushToast(apiErrorMessage(err))
     } finally {
       setSending(false)

@@ -7,6 +7,7 @@ const navItems = [
   { to: '/nearby', label: 'Nearby', icon: '📍' },
   { to: '/messages', label: 'Messages', icon: '💬', badge: 'messages' as const },
   { to: '/communities', label: 'Communities', icon: '👥' },
+  { to: '/voice', label: 'Voice', icon: '🎙️' },
   { to: '/notifications', label: 'Notifications', icon: '🔔', badge: 'notifications' as const },
   { to: '/profile', label: 'Profile', icon: '👤' },
   { to: '/settings', label: 'Settings', icon: '⚙️' },

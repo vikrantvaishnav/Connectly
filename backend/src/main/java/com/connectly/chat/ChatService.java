@@ -56,8 +56,29 @@ public class ChatService {
         for (Object[] row : messages.countUnread(me.getId(), ids)) {
             unread.put((Long) row[0], (Long) row[1]);
         }
+        // Batch-resolve the other participants and their profiles (2 queries, not 2N).
+        List<Long> otherIds = convs.stream()
+                .map(c -> c.otherOf(me).getId())
+                .distinct()
+                .toList();
+        Map<Long, User> otherById = new HashMap<>();
+        for (User u : users.findAllById(otherIds)) {
+            otherById.put(u.getId(), u);
+        }
+        Map<Long, UserProfile> profileById = new HashMap<>();
+        for (UserProfile p : profiles.findByUserIdIn(otherIds)) {
+            profileById.put(p.getUserId(), p);
+        }
         return convs.stream()
-                .map(c -> toSummary(c, me, unread.getOrDefault(c.getId(), 0L)))
+                .map(c -> {
+                    User other = otherById.getOrDefault(c.otherOf(me).getId(), c.otherOf(me));
+                    UserProfile p = profileById.get(other.getId());
+                    return new ConversationSummary(
+                            c.getId(), other.getId(), other.getUsername(),
+                            p == null ? null : p.getFirstName(), p == null ? null : p.getLastName(),
+                            c.getLastMessage(), c.getLastMessageAt(),
+                            unread.getOrDefault(c.getId(), 0L));
+                })
                 .toList();
     }
 
@@ -108,6 +129,7 @@ public class ChatService {
     public List<MessageView> messages(User me, Long conversationId, int page, int size) {
         Conversation conv = requireParticipant(me, conversationId);
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100));
+        // senders are join-fetched (see repository) — no per-message author query
         return messages.findByConversationIdOrderByIdDesc(conv.getId(), pageable).stream()
                 .map(m -> toView(m, me.getId()))
                 .toList();

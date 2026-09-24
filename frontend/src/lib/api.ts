@@ -10,6 +10,12 @@ export const api = axios.create({
   timeout: 45_000,
 })
 
+/** Correct WebSocket URL for the current origin (https pages MUST use wss://). */
+export function wsUrl(): string {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
+  return `${proto}//${location.host}/ws/chat`
+}
+
 // ---------- token plumbing ----------
 
 let accessToken: string | null = null

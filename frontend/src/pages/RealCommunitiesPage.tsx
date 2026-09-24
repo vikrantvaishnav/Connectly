@@ -3,6 +3,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, apiErrorMessage } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { Avatar } from '../components/Avatar'
+import { VoiceRoom } from '../components/VoiceRooms'
+
+interface VoiceRoomView {
+  id: number
+  name: string
+  hostUsername: string
+  participantCount: number
+  communityId: number | null
+}
 
 interface CommunityView {
   id: number
@@ -193,6 +202,25 @@ function CommunityDetail({ id, onBack, onLeave }: { id: number; onBack: () => vo
 
   const canManage = community.data?.myRole === 'OWNER' || community.data?.myRole === 'ADMIN'
 
+  // ---- voice rooms attached to this community ----
+  const [voiceRoomId, setVoiceRoomId] = useState<number | null>(null)
+  const [newVoice, setNewVoice] = useState('')
+  const voiceRooms = useQuery({
+    queryKey: ['community-voice', id],
+    queryFn: async () =>
+      (await api.get<VoiceRoomView[]>('/voice/rooms')).data.filter((r) => r.communityId === id),
+  })
+  const startVoice = useMutation({
+    mutationFn: () => api.post<VoiceRoomView>('/voice/rooms', { name: newVoice, communityId: id }),
+    onSuccess: (res) => {
+      setNewVoice('')
+      queryClient.invalidateQueries({ queryKey: ['community-voice', id] })
+      pushToast(`Voice room "${res.data.name}" created 🎙️`, '✅')
+      setVoiceRoomId(res.data.id)
+    },
+    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
+  })
+
   const addChannel = useMutation({
     mutationFn: () => api.post<ChannelView>(`/communities/${id}/channels`, { name: newChannel, topic: '' }),
     onSuccess: (res) => {
@@ -246,6 +274,30 @@ function CommunityDetail({ id, onBack, onLeave }: { id: number; onBack: () => vo
               />
             </form>
           )}
+
+          <p className="px-2 pb-1 pt-4 text-[10px] font-bold uppercase tracking-wide text-[var(--muted)]">Voice channels</p>
+          {voiceRooms.data?.map((r) => (
+            <button
+              key={r.id}
+              onClick={() => setVoiceRoomId(r.id)}
+              className={`mb-0.5 flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm ${
+                voiceRoomId === r.id ? 'bg-emerald-500/10 font-medium text-emerald-400' : 'text-[var(--muted)] hover:bg-[var(--surface-2)]'
+              }`}
+            >
+              <span aria-hidden="true">🔊</span>
+              <span className="min-w-0 flex-1 truncate">{r.name}</span>
+              <span className="text-[10px]">{r.participantCount > 0 ? `👥 ${r.participantCount}` : ''}</span>
+            </button>
+          ))}
+          <form onSubmit={(e) => { e.preventDefault(); if (newVoice.trim().length >= 2) startVoice.mutate() }} className="mt-1 px-1">
+            <input
+              value={newVoice}
+              onChange={(e) => setNewVoice(e.target.value)}
+              placeholder="new-voice-room"
+              maxLength={60}
+              className="w-full rounded-lg border border-dashed border-[var(--border)] bg-[var(--surface-2)] px-2 py-1.5 text-xs outline-none focus:border-emerald-400"
+            />
+          </form>
         </div>
         <div className="border-t border-[var(--border)] p-2">
           <button onClick={() => setShowMembers(v => !v)} className="w-full rounded-lg px-2 py-1.5 text-left text-xs text-[var(--muted)] hover:bg-[var(--surface-2)]">
@@ -257,9 +309,26 @@ function CommunityDetail({ id, onBack, onLeave }: { id: number; onBack: () => vo
         </div>
       </div>
 
-      {/* channel chat */}
+      {/* channel chat or voice room */}
       <div className="hidden min-w-0 flex-1 flex-col md:flex">
-        {channelId != null ? (
+        {voiceRoomId != null ? (
+          <>
+            <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
+              <button onClick={() => setVoiceRoomId(null)} className="text-xs text-[var(--muted)] hover:text-[var(--text)]">
+                ← Back to channels
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <VoiceRoom
+                roomId={voiceRoomId}
+                onLeave={() => {
+                  setVoiceRoomId(null)
+                  queryClient.invalidateQueries({ queryKey: ['community-voice', id] })
+                }}
+              />
+            </div>
+          </>
+        ) : channelId != null ? (
           <ChannelChat channelId={channelId} channelName={channelName} />
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-[var(--muted)]">Pick a channel</div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Client, type IMessage } from '@stomp/stompjs'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, apiErrorMessage, getAccessToken } from '../lib/api'
+import { api, apiErrorMessage, getAccessToken, wsUrl } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { useAuthStore } from '../store/authStore'
 
@@ -29,7 +29,7 @@ function useSignaling(roomId: number | null, onPeers: (p: ParticipantView[]) => 
   useEffect(() => {
     if (roomId == null || !me?.id) return
     const client = new Client({
-      brokerURL: `ws://${location.host}/ws/chat`,
+      brokerURL: wsUrl(),
       connectHeaders: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
       reconnectDelay: 3000,
       onConnect: () => {
@@ -147,7 +147,7 @@ export function VoiceRoomsPanel() {
   )
 }
 
-function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => void }) {
+export function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => void }) {
   const me = useAuthStore((s) => s.user)!
   const pushToast = useAppStore((s) => s.pushToast)
 

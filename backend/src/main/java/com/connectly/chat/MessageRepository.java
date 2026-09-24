@@ -9,8 +9,18 @@ import org.springframework.data.repository.query.Param;
 
 public interface MessageRepository extends JpaRepository<Message, Long> {
 
+    @Query("""
+           select m from Message m join fetch m.sender
+           where m.conversation.id = :conversationId
+           order by m.id asc
+           """)
     List<Message> findByConversationIdOrderByIdAsc(Long conversationId, Pageable pageable);
 
+    @Query("""
+           select m from Message m join fetch m.sender
+           where m.conversation.id = :conversationId
+           order by m.id desc
+           """)
     List<Message> findByConversationIdOrderByIdDesc(Long conversationId, Pageable pageable);
 
     /**
