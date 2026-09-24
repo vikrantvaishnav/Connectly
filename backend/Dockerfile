@@ -15,7 +15,8 @@ RUN ./mvnw -q -B package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-RUN addgroup -S connectly && adduser -S connectly -G connectly
+RUN addgroup -S connectly && adduser -S connectly -G connectly \
+    && mkdir -p /var/data/media && chown -R connectly:connectly /var/data
 USER connectly
 
 COPY --from=build /app/target/*.jar app.jar

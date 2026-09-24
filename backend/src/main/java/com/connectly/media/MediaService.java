@@ -38,8 +38,23 @@ public class MediaService {
     private final Path storeDir;
 
     public MediaService(@Value("${app.media.dir:.data/media}") String dir) throws IOException {
-        this.storeDir = Path.of(dir).toAbsolutePath().normalize();
-        Files.createDirectories(storeDir);
+        Path configured = Path.of(dir).toAbsolutePath().normalize();
+        Path primary;
+        try {
+            Files.createDirectories(configured);
+            primary = configured;
+        } catch (IOException e) {
+            // Cloud hosts without a mounted disk (e.g. Render free tier before a Disk
+            // is attached) cannot create the configured path. Fall back to a writable
+            // temp dir so the app still boots; uploads there are lost on redeploy.
+            Path fallback = Path.of(System.getProperty("java.io.tmpdir"), "connectly-media");
+            Files.createDirectories(fallback);
+            primary = fallback;
+            org.slf4j.LoggerFactory.getLogger(MediaService.class)
+                    .warn("Cannot use media dir {} ({}). Falling back to {} — uploads are ephemeral until a persistent disk is mounted.",
+                            configured, e.getMessage(), fallback);
+        }
+        this.storeDir = primary;
     }
 
     public record StoredMedia(String url, String contentType, long sizeBytes) {}
