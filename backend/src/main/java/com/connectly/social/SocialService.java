@@ -155,6 +155,7 @@ public class SocialService {
         }
     }
 
+    @Transactional(readOnly = true)
     public java.util.List<ConnectionDto> listConnections(User actor, String filter) {
         java.util.function.Function<Connection, ConnectionDto> map = c -> {
             boolean outgoing = c.getSender().getId().equals(actor.getId());
