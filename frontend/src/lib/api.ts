@@ -5,7 +5,9 @@ const API_BASE = '/api/v1'
 
 export const api = axios.create({
   baseURL: API_BASE,
-  timeout: 10_000,
+  // Generous timeout: on Render's free tier the backend sleeps after 15 min idle
+  // (~50s wake) and cold queries against the cloud DB can take several seconds.
+  timeout: 45_000,
 })
 
 // ---------- token plumbing ----------
