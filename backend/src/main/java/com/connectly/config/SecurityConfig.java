@@ -80,6 +80,7 @@ public class SecurityConfig {
                                 "/api/v1/posts/*/comments").permitAll()
                         // uploaded media files are public, read-only, generated names
                         .requestMatchers(HttpMethod.GET, "/media/*").permitAll()
+                        .requestMatchers(HttpMethod.HEAD, "/media/*").permitAll()
                         // open voice-room list is public read-only; joining still requires auth
                         .requestMatchers(HttpMethod.GET, "/api/v1/voice/rooms").permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
