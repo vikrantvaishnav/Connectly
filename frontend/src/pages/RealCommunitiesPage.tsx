@@ -367,13 +367,31 @@ function ChannelChat({ channelId, channelName }: { channelId: number; channelNam
     refetchInterval: 5_000,
   })
 
+  // Optimistic Discord-style send: message appears instantly, reconciles with the server.
   const send = useMutation({
-    mutationFn: () => api.post<ChannelMessageView>(`/communities/channels/${channelId}/messages`, { content: draft }),
-    onSuccess: () => {
+    mutationFn: (content: string) =>
+      api.post<ChannelMessageView>(`/communities/channels/${channelId}/messages`, { content }),
+    onMutate: async (content: string) => {
+      await queryClient.cancelQueries({ queryKey: ['channel-messages', channelId] })
+      const prev = queryClient.getQueryData<ChannelMessageView[]>(['channel-messages', channelId])
+      const optimistic: ChannelMessageView = {
+        id: -Date.now(),
+        senderId: -1,
+        senderUsername: 'me',
+        senderName: 'You',
+        content,
+        createdAt: new Date().toISOString(),
+        mine: true,
+      }
+      queryClient.setQueryData<ChannelMessageView[]>(['channel-messages', channelId], (old) => [...(old ?? []), optimistic])
       setDraft('')
-      queryClient.invalidateQueries({ queryKey: ['channel-messages', channelId] })
+      return { prev }
     },
-    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
+    onError: (e, _content, ctx) => {
+      if (ctx?.prev) queryClient.setQueryData(['channel-messages', channelId], ctx.prev)
+      pushToast(apiErrorMessage(e), '⚠️')
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['channel-messages', channelId] }),
   })
 
   useEffect(() => {
@@ -382,7 +400,7 @@ function ChannelChat({ channelId, channelName }: { channelId: number; channelNam
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (draft.trim()) send.mutate()
+    if (draft.trim()) send.mutate(draft.trim())
   }
 
   return (

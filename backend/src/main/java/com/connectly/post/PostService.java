@@ -156,10 +156,10 @@ public class PostService {
     }
 
     @Transactional(readOnly = true)
-    public PostDtos.PostPage explore(int page, int size) {
+    public PostDtos.PostPage explore(User viewer, int page, int size) {
         Page<Post> result = posts.findByVisibilityOrderByCreatedAtDesc(Post.Visibility.PUBLIC,
                 PageRequest.of(page, Math.min(size, 50)));
-        return toPage(result, null);
+        return toPage(result, viewer);
     }
 
     @Transactional(readOnly = true)

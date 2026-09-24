@@ -78,6 +78,10 @@ public class SecurityConfig {
                         // public social surface (read-only)
                         .requestMatchers(HttpMethod.GET, "/api/v1/posts/explore",
                                 "/api/v1/posts/*/comments").permitAll()
+                        // single post detail is public; visibility is enforced per-post
+                        // (404 for strangers) inside the service. The {id:[0-9]+} regex
+                        // deliberately does NOT match /feed, /explore, /search.
+                        .requestMatchers(HttpMethod.GET, "/api/v1/posts/{id:[0-9]+}").permitAll()
                         // uploaded media files are public, read-only, generated names
                         .requestMatchers(HttpMethod.GET, "/media/*").permitAll()
                         .requestMatchers(HttpMethod.HEAD, "/media/*").permitAll()

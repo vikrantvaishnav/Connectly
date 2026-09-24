@@ -88,9 +88,10 @@ public class PostController {
     }
 
     @GetMapping("/explore")
-    public PostDtos.PostPage explore(@RequestParam(defaultValue = "0") int page,
+    public PostDtos.PostPage explore(@AuthenticationPrincipal User user,
+                                     @RequestParam(defaultValue = "0") int page,
                                      @RequestParam(defaultValue = "12") int size) {
-        return postService.explore(page, size);
+        return postService.explore(user, page, size);
     }
 
     @GetMapping("/users/{username}")

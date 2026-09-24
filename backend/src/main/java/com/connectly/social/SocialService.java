@@ -81,8 +81,17 @@ public class SocialService {
             return Connection.Status.PENDING;
         }
         switch (c.getStatus()) {
-            case ACCEPTED, PENDING -> {
-                return c.getStatus();
+            case PENDING -> {
+                // mutual-consent accept: the RECEIVER posting back accepts the request
+                if (c.getReceiver().getId().equals(actor.getId())) {
+                    c.setStatus(Connection.Status.ACCEPTED);
+                    connections.save(c);
+                    return Connection.Status.ACCEPTED;
+                }
+                return Connection.Status.PENDING; // sender re-POSTing = already requested
+            }
+            case ACCEPTED -> {
+                return Connection.Status.ACCEPTED; // already connected
             }
             case DECLINED -> {
                 c.setStatus(Connection.Status.PENDING);

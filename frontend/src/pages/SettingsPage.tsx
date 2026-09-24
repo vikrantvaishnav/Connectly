@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { api, apiErrorMessage } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { Avatar } from '../components/Avatar'
 import { useAuthStore } from '../store/authStore'
@@ -36,6 +38,15 @@ export function SettingsPage() {
   const me = users.find((u) => u.id === CURRENT_USER_ID)
   const blockedUsers = users.filter((u) => blockedUserIds.includes(u.id))
   const authUser = useAuthStore((s) => s.user)
+  const [discoverable, setDiscoverable] = useState(false)
+
+  // Live privacy state for signed-in users.
+  useEffect(() => {
+    if (!authUser) return
+    api.get<{ discoverable: boolean }>('/users/me/location-status')
+      .then((res) => setDiscoverable(res.data.discoverable))
+      .catch(() => {})
+  }, [authUser])
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
@@ -54,7 +65,9 @@ export function SettingsPage() {
           </div>
         )}
         <p className="mt-3 text-xs text-[var(--muted)]">
-          Real account management (email, password change, deletion) arrives with Phase 2 authentication.
+          {authUser
+            ? 'Manage your email, password and account security from the Security settings.'
+            : 'Create an account to manage your profile, security and privacy.'}
         </p>
       </section>
 
@@ -95,9 +108,31 @@ export function SettingsPage() {
       {/* Privacy */}
       <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Privacy</h2>
-        <Toggle on onChange={() => pushToast('Persisted privacy settings arrive in Phase 4 🔒')} label="Discoverable nearby" hint="Let people near you see you in Nearby" />
-        <Toggle on onChange={() => pushToast('Persisted privacy settings arrive in Phase 4 🔒')} label="Show approximate distance" hint="Never your exact coordinates" />
-        <Toggle on={false} onChange={() => pushToast('Persisted privacy settings arrive in Phase 4 🔒')} label="Private account" hint="Approve followers manually" />
+        {authUser ? (
+          <>
+            <Toggle
+              on={discoverable}
+              onChange={() => {
+                api.put('/users/me/discoverability', { discoverable: !discoverable })
+                  .then((res: { data: { discoverable: boolean } }) => {
+                    setDiscoverable(res.data.discoverable)
+                    pushToast(res.data.discoverable ? 'You are visible on Nearby' : 'You are hidden from Nearby', '🛡️')
+                  })
+                  .catch((e: unknown) => pushToast(apiErrorMessage(e), '⚠️'))
+              }}
+              label="Discoverable nearby"
+              hint="Let people near you see you in Nearby — backed by your live account"
+            />
+            <Toggle on label="Approximate distance only" onChange={() => {}} hint="Nearby never shows exact coordinates — enforced server-side" />
+            <Toggle on={false} onChange={() => pushToast('Private accounts arrive soon 🔒')} label="Private account" hint="Approve followers manually" />
+          </>
+        ) : (
+          <>
+            <Toggle on onChange={() => pushToast('Sign in to manage privacy 🔒')} label="Discoverable nearby" hint="Let people near you see you in Nearby" />
+            <Toggle on onChange={() => pushToast('Sign in to manage privacy 🔒')} label="Show approximate distance" hint="Never your exact coordinates" />
+            <Toggle on={false} onChange={() => pushToast('Sign in to manage privacy 🔒')} label="Private account" hint="Approve followers manually" />
+          </>
+        )}
       </section>
 
       {/* Blocked users */}

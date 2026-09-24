@@ -143,8 +143,8 @@ function ChatPane({ conversationId }: { conversationId: string }) {
         </div>
         <button
           className="rounded-full border border-[var(--border)] p-2 text-sm hover:bg-[var(--surface-2)]"
-          title="Voice call — arrives in Phase 7"
-          onClick={() => useAppStore.getState().pushToast('Voice calls arrive in Phase 7 (WebRTC) 🎙️')}
+          title="Voice call"
+          onClick={() => { useAppStore.getState().pushToast('Sign in to start voice calls 🎙️'); window.location.href = '/login' }}
         >
           📞
         </button>
@@ -194,7 +194,7 @@ function ChatPane({ conversationId }: { conversationId: string }) {
       <form onSubmit={submit} className="flex gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-3">
         <button
           type="button"
-          onClick={() => useAppStore.getState().pushToast('Attachments arrive in Phase 5 📎')}
+          onClick={() => { useAppStore.getState().pushToast('Sign in to send attachments 📎'); window.location.href = '/login' }}
           className="rounded-xl border border-[var(--border)] px-3 text-lg hover:bg-[var(--surface-2)]"
           aria-label="Attach file"
         >

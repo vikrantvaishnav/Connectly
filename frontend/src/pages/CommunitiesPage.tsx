@@ -19,7 +19,7 @@ function DemoCommunities() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Communities</h1>
         <button
-          onClick={() => pushToast('Community creation arrives in Phase 6 ✨')}
+          onClick={() => { pushToast('Sign in to create communities ✨'); window.location.href = '/login' }}
           className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-all hover:bg-[var(--accent-hover)] active:scale-95"
         >
           + Create

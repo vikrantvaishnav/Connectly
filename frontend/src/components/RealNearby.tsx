@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api, apiErrorMessage } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { useAuthStore } from '../store/authStore'
@@ -20,6 +20,13 @@ interface NearbyHit {
 interface NearbyStatus {
   locationShared: boolean
   discoverable: boolean
+}
+
+interface ConnDto {
+  id: number
+  user: { id: number; username: string }
+  direction: 'incoming' | 'outgoing'
+  status: 'PENDING' | 'ACCEPTED'
 }
 
 const RADII = [1, 5, 10, 25, 50]
@@ -50,6 +57,42 @@ export function RealNearby() {
     queryFn: async () =>
       (await api.get<NearbyHit[]>(`/nearby?lat=${geo.lat}&lng=${geo.lng}&radiusKm=${radius}`)).data,
     enabled: !!authUser,
+  })
+
+  // Connection state per user (Connect ↔ Accept ↔ Connected), for the action buttons.
+  const navigate = useNavigate()
+  const connMap = useQuery({
+    queryKey: ['connections-map'],
+    queryFn: async () => {
+      const [out, inc, acc] = await Promise.all([
+        api.get<ConnDto[]>('/connections?filter=outgoing'),
+        api.get<ConnDto[]>('/connections?filter=incoming'),
+        api.get<ConnDto[]>('/connections?filter=accepted'),
+      ])
+      const map: Record<number, ConnDto> = {}
+      for (const x of [...out.data, ...inc.data, ...acc.data]) map[x.user.id] = x
+      return map
+    },
+    enabled: !!authUser,
+    staleTime: 10_000,
+  })
+
+  const refreshConnMap = () => queryClient.invalidateQueries({ queryKey: ['connections-map'] })
+
+  const connect = useMutation({
+    mutationFn: (userId: number) => api.post<{ status: string }>(`/connections/${userId}`),
+    onSuccess: (res) => {
+      pushToast(res.data.status === 'ACCEPTED' ? "It's a match — you're connected! 💘" : 'Connect request sent 💘', '💘')
+      refreshConnMap()
+    },
+    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
+  })
+
+  const sayHi = useMutation({
+    mutationFn: async (userId: number) =>
+      (await api.post<{ id: number }>('/conversations', { userId })).data,
+    onSuccess: (conv) => navigate(`/messages/${conv.id}`),
+    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
   })
 
   const shareLocation = useMutation({
@@ -203,12 +246,51 @@ export function RealNearby() {
                 ~{h.distanceKm.toFixed(1)} km away
               </p>
             </div>
-            <Link
-              to={`/profile/${h.username}`}
-              className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)]"
-            >
-              View profile
-            </Link>
+            <div className="flex shrink-0 flex-col items-stretch gap-1.5">
+              {(() => {
+                const conn = connMap.data?.[h.id]
+                if (conn?.status === 'ACCEPTED') {
+                  return (
+                    <>
+                      <span className="rounded-xl bg-rose-500/10 px-4 py-2 text-center text-xs font-semibold text-rose-500">✓ Connected</span>
+                      <button
+                        onClick={() => sayHi.mutate(h.id)}
+                        disabled={sayHi.isPending}
+                        className="rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-medium text-white transition-all hover:from-rose-400 hover:to-pink-400 active:scale-95 disabled:opacity-50"
+                      >
+                        💬 Say hi
+                      </button>
+                    </>
+                  )
+                }
+                if (conn?.status === 'PENDING' && conn.direction === 'incoming') {
+                  return (
+                    <button
+                      onClick={() => connect.mutate(h.id)}
+                      disabled={connect.isPending}
+                      className="rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-medium text-white transition-all hover:from-rose-400 hover:to-pink-400 active:scale-95 disabled:opacity-50"
+                    >
+                      ❤️ Accept
+                    </button>
+                  )
+                }
+                if (conn?.status === 'PENDING') {
+                  return <span className="rounded-xl bg-[var(--surface-2)] px-4 py-2 text-center text-xs text-[var(--muted)]">⏳ Requested</span>
+                }
+                return (
+                  <button
+                    onClick={() => connect.mutate(h.id)}
+                    disabled={connect.isPending}
+                    className="rounded-xl bg-gradient-to-r from-rose-500 to-pink-500 px-4 py-2 text-sm font-medium text-white transition-all hover:from-rose-400 hover:to-pink-400 active:scale-95 disabled:opacity-50"
+                  >
+                    ⚡ Connect
+                  </button>
+                )
+              })()}
+              <Link to={`/profile/${h.username}`} className="text-center text-xs text-[var(--muted)] hover:text-[var(--text)]">
+                View profile
+              </Link>
+            </div>
           </div>
         ))}
       </div>

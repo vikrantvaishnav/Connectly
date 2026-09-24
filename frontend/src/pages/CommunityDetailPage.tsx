@@ -115,7 +115,7 @@ export function CommunityDetailPage() {
               {voiceChannels.map((ch) => (
                 <button
                   key={ch.id}
-                  onClick={() => useAppStore.getState().pushToast('Voice channels arrive in Phase 7 (WebRTC) 🔊')}
+                  onClick={() => { useAppStore.getState().pushToast('Sign in to join voice rooms 🔊'); window.location.href = '/login' }}
                   className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)]"
                 >
                   <span aria-hidden="true">🔊</span>
