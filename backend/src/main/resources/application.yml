@@ -1,0 +1,81 @@
+spring:
+  application:
+    name: connectly-backend
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:connectly}
+    username: ${DB_USERNAME:connectly}
+    password: ${DB_PASSWORD:connectly}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+  mail:
+    host: ${MAIL_HOST:}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+server:
+  port: ${SERVER_PORT:8080}
+  error:
+    include-stacktrace: never
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+app:
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:3000}
+
+  jwt:
+    # 64-byte random secret. Set via env in any real deployment.
+    secret: ${JWT_SECRET:dev-only-secret-change-me-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    access-ttl-seconds: ${JWT_ACCESS_TTL:900}          # 15 minutes
+    refresh-ttl-seconds: ${JWT_REFRESH_TTL:1209600}    # 14 days
+    mfa-ttl-seconds: ${JWT_MFA_TTL:300}                # 5 minutes
+
+  login:
+    max-failed-attempts: 5
+    lock-minutes: 15
+
+  rate-limit:
+    # requests per window (seconds) per key (IP or identifier)
+    login: 10/60
+    register: 5/300
+    forgot-password: 5/3600
+    reset-password: 5/3600
+    verify-email: 10/300
+
+  mail:
+    mode: ${MAIL_MODE:log}   # log | smtp
+    from: ${MAIL_FROM:Connectly <no-reply@connectly.local>}
+    # Base URL used in verification / reset links sent by email.
+    public-base-url: ${MAIL_PUBLIC_BASE_URL:http://localhost:5173}
+
+  oauth:
+    google:
+      enabled: ${GOOGLE_OAUTH_ENABLED:false}
+      client-id: ${GOOGLE_CLIENT_ID:}
+      client-secret: ${GOOGLE_CLIENT_SECRET:}

@@ -1,0 +1,18 @@
+# Dev profile: runs without Docker using in-memory H2 in MySQL-compatibility mode.
+# The Flyway migrations are the same ones validated against real MySQL by the CI tests.
+spring:
+  datasource:
+    url: jdbc:h2:mem:connectly;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+# Generous limits for local development and the auth-e2e script.
+# The production limits from application.yml stay untouched.
+app:
+  rate-limit:
+    login: 100/60
+    register: 100/300
+    forgot-password: 100/3600
+    reset-password: 100/3600
+    verify-email: 100/300

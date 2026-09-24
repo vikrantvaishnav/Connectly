@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Docker Compose — Explained Visually</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#24334a; --text:#e2e8f0; --muted:#94a3b8;
+    --blue:#38bdf8; --green:#4ade80; --amber:#fbbf24; --red:#f87171; --purple:#c084fc; --line:#334155;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;padding:0 0 4rem}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 1.25rem}
+  header{background:linear-gradient(135deg,#0c4a6e,#1e293b 60%,#312e81);padding:3rem 0 2.5rem;border-bottom:1px solid var(--line)}
+  h1{font-size:2.2rem;margin-bottom:.5rem}
+  .sub{color:var(--muted);font-size:1.05rem;max-width:46rem}
+  .pill{display:inline-block;background:var(--blue);color:#04283a;font-weight:700;border-radius:999px;padding:.15rem .8rem;font-size:.8rem;margin-bottom:1rem;letter-spacing:.5px}
+  h2{font-size:1.5rem;margin:2.5rem 0 1rem;padding-bottom:.4rem;border-bottom:2px solid var(--line)}
+  h2 .num{color:var(--blue);margin-right:.5rem}
+  h3{font-size:1.1rem;margin:1.3rem 0 .5rem;color:var(--blue)}
+  p{margin-bottom:.9rem}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:1.4rem;margin:1rem 0}
+  .grid{display:grid;gap:1rem}
+  .g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .g2{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+  code,.code{font-family:'Cascadia Code',Consolas,monospace}
+  pre{background:#0b1120;border:1px solid var(--line);border-radius:10px;padding:1rem;overflow-x:auto;font-size:.85rem;line-height:1.55;margin:1rem 0}
+  .kw{color:var(--blue)} .str{color:var(--green)} .cm{color:#64748b;font-style:italic} .key{color:var(--purple)} .num2{color:var(--amber)}
+  table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:.92rem}
+  th,td{border:1px solid var(--line);padding:.6rem .8rem;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:var(--blue)}
+  .callout{border-left:4px solid var(--blue);background:var(--panel2);border-radius:0 10px 10px 0;padding:.9rem 1.1rem;margin:1rem 0;font-size:.95rem}
+  .callout.warn{border-color:var(--amber)} .callout.good{border-color:var(--green)} .callout.bad{border-color:var(--red)}
+  .svgbox{background:#0b1120;border:1px solid var(--line);border-radius:12px;padding:1rem;margin:1rem 0;overflow-x:auto}
+  .svgbox text{font-family:'Segoe UI',sans-serif}
+  ul{margin:0 0 .9rem 1.3rem}
+  li{margin-bottom:.35rem}
+  .tag{display:inline-block;border-radius:6px;padding:.1rem .5rem;font-size:.78rem;font-weight:600;margin-right:.35rem}
+  details{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:.8rem 1rem;margin:.7rem 0}
+  summary{cursor:pointer;font-weight:600;color:var(--blue)}
+  .flow{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin:1rem 0}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:.7rem 1rem;flex:1;min-width:150px;position:relative}
+  .step b{color:var(--blue);display:block;font-size:.85rem}
+  .arrow{color:var(--amber);font-size:1.4rem}
+  @media(prefers-reduced-motion:no-preference){
+    .step{transition:transform .2s}
+    .step:hover{transform:translateY(-3px)}
+  }
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <span class="pill">CONCEPT EXPLAINER</span>
+  <h1>🐳 Docker Compose, Explained</h1>
+  <p class="sub">How one YAML file defines, configures, and runs your whole multi-container application with a single command.</p>
+</div></header>
+
+<main class="wrap">
+
+<h2><span class="num">1</span>What is Docker Compose?</h2>
+<p>Docker Compose is a tool for <b>defining and running multi-container Docker applications</b>. Instead of typing long <code>docker run</code> commands for each service — with all their ports, volumes, environment variables, and networks — you describe everything once in a <code>compose.yaml</code> file, then start the entire stack with one command.</p>
+<div class="callout">
+<b>One-sentence summary:</b> Compose = <i>infrastructure as code for local/staging environments</i>. Your whole app (web server, database, cache, workers) becomes a version-controlled, one-command setup.
+</div>
+<div class="grid g3">
+  <div class="card"><h3>🧩 Declarative</h3><p>You declare the <i>desired state</i> in YAML; Compose figures out create, start, and ordering steps.</p></div>
+  <div class="card"><h3>📦 Multi-service</h3><p>Web + DB + cache + queue on one isolated network, wired together automatically via service names.</p></div>
+  <div class="card"><h3>♻️ Repeatable</h3><p>Same file = same environment on every teammate's machine and CI runner. Kills "works on my machine".</p></div>
+</div>
+
+<h2><span class="num">2</span>Without vs. With Compose</h2>
+<pre><span class="cm"># ❌ WITHOUT Compose — long, error-prone, must be repeated manually & in the right order</span>
+docker network create mynet
+docker volume create dbdata
+docker run -d --name db --network mynet -v dbdata:/var/lib/postgresql/data \
+  -e POSTGRES_PASSWORD=secret postgres:16
+docker run -d --name web --network mynet -p 8000:8000 \
+  -e DATABASE_URL=postgres://postgres:secret@db:5432/app myapp:latest
+<span class="cm"># ...and rebuild/restart each by hand after every change</span>
+
+<span class="cm"># ✅ WITH Compose — one file, one command</span>
+docker compose up</pre>
+
+<h2><span class="num">3</span>Anatomy of a compose.yaml</h2>
+<pre><code><span class="kw">services</span>:                          <span class="cm"># ← the containers of your app</span>
+  <span class="key">web</span>:                             <span class="cm"># service name (also its DNS name on the network!)</span>
+    <span class="key">build</span>: .                       <span class="cm"># build image from ./Dockerfile</span>
+    <span class="key">ports</span>:
+      - <span class="str">"8000:8000"</span>                <span class="cm"># host:container port mapping</span>
+    <span class="key">environment</span>:
+      - <span class="str">DATABASE_URL=postgres://postgres:secret@db:5432/app</span>
+    <span class="key">depends_on</span>:
+      <span class="key">db</span>:
+        <span class="key">condition</span>: <span class="str">service_healthy</span> <span class="cm"># wait until db passes its healthcheck</span>
+    <span class="key">volumes</span>:
+      - <span class="str">./src:/app/src</span>             <span class="cm"># bind mount: live code reload</span>
+    <span class="key">restart</span>: <span class="str">unless-stopped</span>
+
+  <span class="key">db</span>:
+    <span class="key">image</span>: <span class="str">postgres:16</span>             <span class="cm"># pull a prebuilt image instead of building</span>
+    <span class="key">environment</span>:
+      - <span class="str">POSTGRES_PASSWORD=secret</span>
+    <span class="key">volumes</span>:
+      - <span class="str">dbdata:/var/lib/postgresql/data</span>  <span class="cm"># named volume: data survives restarts</span>
+    <span class="key">healthcheck</span>:
+      <span class="key">test</span>: [<span class="str">"CMD-SHELL"</span>, <span class="str">"pg_isready -U postgres"</span>]
+      <span class="key">interval</span>: <span class="num2">5s</span>
+      <span class="key">retries</span>: <span class="num2">10</span>
+
+<span class="kw">volumes</span>:                           <span class="cm"># declare named volumes</span>
+  <span class="key">dbdata</span>: {}
+
+<span class="kw">networks</span>:                          <span class="cm"># (optional) Compose creates a default one automatically</span>
+  <span class="key">default</span>: {}</code></pre>
+<div class="callout good">
+<b>Key magic:</b> every service joins a shared network, so your app connects to the database using the <b>hostname <code>db</code></b> (the service name) — no IPs, no linking.
+</div>
+
+<h2><span class="num">4</span>What happens when you run <code>docker compose up</code></h2>
+<div class="svgbox">
+<svg viewBox="0 0 900 240" width="100%" role="img" aria-label="Compose startup flow">
+  <defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#fbbf24"/></marker></defs>
+  <g font-size="13" fill="#e2e8f0" text-anchor="middle">
+    <rect x="10" y="70" width="150" height="70" rx="10" fill="#24334a" stroke="#334155"/><text x="85" y="98">Read</text><text x="85" y="118" fill="#94a3b8">compose.yaml + .env</text>
+    <rect x="195" y="70" width="150" height="70" rx="10" fill="#24334a" stroke="#334155"/><text x="270" y="98">Build images</text><text x="270" y="118" fill="#94a3b8">if build: given</text>
+    <rect x="380" y="70" width="150" height="70" rx="10" fill="#24334a" stroke="#334155"/><text x="455" y="98">Create network</text><text x="455" y="118" fill="#94a3b8">project_default</text>
+    <rect x="565" y="70" width="150" height="70" rx="10" fill="#24334a" stroke="#334155"/><text x="640" y="98">Start containers</text><text x="640" y="118" fill="#94a3b8">respecting depends_on</text>
+    <rect x="750" y="70" width="140" height="70" rx="10" fill="#14532d" stroke="#4ade80"/><text x="820" y="98">App running 🎉</text><text x="820" y="118" fill="#94a3b8">logs merged with -f</text>
+    <line x1="160" y1="105" x2="192" y2="105" stroke="#fbbf24" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="345" y1="105" x2="377" y2="105" stroke="#fbbf24" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="530" y1="105" x2="562" y2="105" stroke="#fbbf24" stroke-width="2" marker-end="url(#a)"/>
+    <line x1="715" y1="105" x2="747" y2="105" stroke="#fbbf24" stroke-width="2" marker-end="url(#a)"/>
+    <text x="450" y="200" fill="#fbbf24">Compose detects what already exists and only recreates containers whose config changed</text>
+  </g>
+</svg>
+</div>
+
+<h2><span class="num">5</span>Runtime architecture</h2>
+<div class="svgbox">
+<svg viewBox="0 0 900 330" width="100%" role="img" aria-label="Compose runtime architecture">
+  <g font-size="13">
+    <rect x="20" y="20" width="860" height="290" rx="14" fill="#0b1120" stroke="#334155"/>
+    <text x="450" y="45" text-anchor="middle" fill="#94a3b8">Docker Host (your machine)</text>
+    <rect x="45" y="65" width="810" height="215" rx="10" fill="#111c2f" stroke="#38bdf8" stroke-dasharray="6 4"/>
+    <text x="450" y="88" text-anchor="middle" fill="#38bdf8">Compose project network: myapp_default (isolated bridge)</text>
+    <rect x="75" y="110" width="180" height="140" rx="10" fill="#1e293b" stroke="#4ade80"/>
+    <text x="165" y="135" text-anchor="middle" fill="#4ade80" font-weight="bold">web :8000</text>
+    <text x="165" y="158" text-anchor="middle" fill="#94a3b8">built from Dockerfile</text>
+    <text x="165" y="178" text-anchor="middle" fill="#94a3b8">bind mount ./src</text>
+    <text x="165" y="198" text-anchor="middle" fill="#94a3b8">↑ port 8000 published</text>
+    <text x="165" y="228" text-anchor="middle" fill="#fbbf24">⬇ localhost:8000</text>
+    <rect x="295" y="110" width="180" height="140" rx="10" fill="#1e293b" stroke="#c084fc"/>
+    <text x="385" y="135" text-anchor="middle" fill="#c084fc" font-weight="bold">worker</text>
+    <text x="385" y="165" text-anchor="middle" fill="#94a3b8">talks to db &amp; redis</text>
+    <text x="385" y="185" text-anchor="middle" fill="#94a3b8">via service names</text>
+    <rect x="515" y="110" width="180" height="140" rx="10" fill="#1e293b" stroke="#f87171"/>
+    <text x="605" y="135" text-anchor="middle" fill="#f87171" font-weight="bold">db :5432</text>
+    <text x="605" y="165" text-anchor="middle" fill="#94a3b8">postgres:16 image</text>
+    <text x="605" y="185" text-anchor="middle" fill="#94a3b8">volume: dbdata</text>
+    <text x="605" y="205" text-anchor="middle" fill="#94a3b8">(persists data)</text>
+    <rect x="735" y="110" width="95" height="140" rx="10" fill="#1e293b" stroke="#fbbf24"/>
+    <text x="782" y="135" text-anchor="middle" fill="#fbbf24" font-weight="bold">redis</text>
+    <text x="782" y="165" text-anchor="middle" fill="#94a3b8">cache</text>
+    <g stroke="#38bdf8" stroke-width="2">
+      <line x1="255" y1="180" x2="515" y2="180"/>
+      <line x1="475" y1="200" x2="735" y2="200"/>
+      <line x1="475" y1="160" x2="515" y2="160"/>
+    </g>
+    <text x="385" y="172" text-anchor="middle" fill="#38bdf8" font-size="11">db:5432</text>
+    <text x="605" y="152" text-anchor="middle" fill="#38bdf8" font-size="11">redis:6379</text>
+  </g>
+</svg>
+</div>
+<p>Only <b>web</b> publishes a port to the host; <b>db</b> and <b>redis</b> stay private inside the network — reachable only by sibling containers. That's the security model in one picture.</p>
+
+<h2><span class="num">6</span>Essential commands</h2>
+<table>
+  <tr><th>Command</th><th>What it does</th></tr>
+  <tr><td><code>docker compose up -d</code></td><td>Start everything in the background</td></tr>
+  <tr><td><code>docker compose up --build</code></td><td>Rebuild images, then start</td></tr>
+  <tr><td><code>docker compose down</code></td><td>Stop &amp; remove containers + network (<code>-v</code> also deletes volumes/data!)</td></tr>
+  <tr><td><code>docker compose ps</code> / <code>logs -f web</code></td><td>See status / follow one service's logs</td></tr>
+  <tr><td><code>docker compose exec web sh</code></td><td>Open a shell inside a running container</td></tr>
+  <tr><td><code>docker compose restart web</code> / <code>pull</code></td><td>Restart one service / refresh images</td></tr>
+  <tr><td><code>docker compose -f base.yaml -f prod.yaml up</code></td><td>Layer multiple config files (override wins)</td></tr>
+</table>
+
+<h2><span class="num">7</span>Key concepts at a glance</h2>
+<div class="grid g2">
+<details open><summary>Project = folder</summary><p>Compose groups everything under a "project name" (default: the folder name). All containers get prefixes like <code>myapp-web-1</code>. Override with <code>-p myproject</code> or <code>name:</code> in the file.</p></details>
+<details open><summary>depends_on ≠ "database is ready"</summary><p>Plain <code>depends_on</code> only controls <i>start order</i>. Use <code>condition: service_healthy</code> plus a <code>healthcheck</code> to wait for the DB to actually accept connections.</p></details>
+<details open><summary>bind mounts vs. named volumes</summary><p><code>./src:/app/src</code> → live host folder (great for dev hot-reload). <code>dbdata:/var/lib/...</code> → Docker-managed volume (great for durable data). Never bake data into image layers.</p></details>
+<details open><summary>Variables & multiple environments</summary><p><code>${VAR}</code> interpolates from your shell or a <code>.env</code> file next to the YAML. Common pattern: <code>base compose.yaml</code> + <code>compose.override.yaml</code> (auto-loaded for dev) + <code>compose.prod.yaml</code>.</p></details>
+<details open><summary>Profiles</summary><p>Tag services with <code>profiles: [debug]</code>; they only start with <code>--profile debug</code>. Handy for optional tooling like admin UIs.</p></details>
+<details open><summary>scale</summary><p><code>docker compose up -d --scale worker=4</code> runs multiple replicas; Compose load-balances by DNS round-robin.</p></details>
+</div>
+
+<h2><span class="num">8</span>Compose vs. plain Docker vs. Kubernetes</h2>
+<table>
+  <tr><th></th><th>docker run</th><th>Docker Compose</th><th>Kubernetes</th></tr>
+  <tr><td><b>Definition</b></td><td>CLI flags per container</td><td>One YAML file</td><td>Many manifest YAMLs</td></tr>
+  <tr><td><b>Scale</b></td><td>1 container</td><td>One host, many containers</td><td>Multi-node cluster</td></tr>
+  <tr><td><b>Self-healing / orchestration</b></td><td>—</td><td>Limited (restart policy)</td><td>Full (rescheduling, autoscaling, rollouts)</td></tr>
+  <tr><td><b>Best for</b></td><td>Quick one-offs</td><td>Local dev, CI, single-server staging/small prod</td><td>Production at scale</td></tr>
+</table>
+<div class="callout warn">
+<b>Rule of thumb:</b> Compose is a <i>local & CI workhorse</i>, not a cluster orchestrator. Don't expect multi-host scheduling, service discovery across nodes, or advanced rollouts.
+</div>
+
+<h2><span class="num">9</span>Mental model recap</h2>
+<div class="flow">
+  <div class="step"><b>1. Write</b>describe services, networks, volumes in compose.yaml</div><span class="arrow">→</span>
+  <div class="step"><b>2. Up</b><code>docker compose up</code> builds & wires everything</div><span class="arrow">→</span>
+  <div class="step"><b>3. Develop</b>edit code (bind mount), <code>up --build</code> to apply</div><span class="arrow">→</span>
+  <div class="step"><b>4. Teardown</b><code>down</code> cleans containers & network; volumes stay unless <code>-v</code></div>
+</div>
+<div class="callout good"><b>TL;DR:</b> Docker Compose turns "how do I run this app?" into "read this one file and run one command" — versioned with your code, identical for everyone.</div>
+
+</main>
+</body>
+</html>
