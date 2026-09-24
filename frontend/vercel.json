@@ -2,6 +2,7 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "https://connectly-ectc.onrender.com/api/$1" },
     { "source": "/ws/(.*)", "destination": "https://connectly-ectc.onrender.com/ws/$1" },
-    { "source": "/media/(.*)", "destination": "https://connectly-ectc.onrender.com/media/$1" }
+    { "source": "/media/(.*)", "destination": "https://connectly-ectc.onrender.com/media/$1" },
+    { "source": "/((?!api/|ws/|media/|assets/|favicon).*)", "destination": "/index.html" }
   ]
 }
