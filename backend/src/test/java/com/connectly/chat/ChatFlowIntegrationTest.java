@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * send/receive, unread counts, read receipts, and object-level
  * authorization (strangers get 404, never 403).
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "connectly.tests.auto-activate=true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ChatFlowIntegrationTest {
 

@@ -27,7 +27,9 @@ interface AuthState {
     username: string
     email: string
     password: string
-  }) => Promise<void>
+  }) => Promise<{ maskedEmail: string }>
+  verifyRegistrationOtp: (email: string, code: string) => Promise<void>
+  resendRegistrationOtp: (email: string) => Promise<void>
   setUser: (user: AuthUser | null) => void
   logout: () => Promise<void>
 }
@@ -78,14 +80,20 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   register: async (input) => {
-    // Registration now returns a full session (auto-login), so a lost or
-    // undelivered verification email can never lock someone out.
-    const res = await api.post<{ accessToken: string; refreshToken: string; user: AuthUser }>(
-      '/auth/register',
-      input,
-    )
+    // Registration no longer issues a session: the account activates only
+    // after the emailed 6-digit code is confirmed (see verifyRegistrationOtp).
+    const res = await api.post<{ maskedEmail: string; expiresInSec: number }>('/auth/register', input)
+    return { maskedEmail: res.data.maskedEmail }
+  },
+
+  verifyRegistrationOtp: async (email, code) => {
+    const res = await api.post('/auth/verify-otp', { email, code })
     applyTokens(res.data)
     set({ user: res.data.user })
+  },
+
+  resendRegistrationOtp: async (email) => {
+    await api.post('/auth/resend-otp', { email })
   },
 
   setUser: (user) => set({ user }),

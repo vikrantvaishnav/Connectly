@@ -1,0 +1,129 @@
+# Connectly — Kong Gateway declarative configuration (DB-less mode).
+# Source of truth for the edge: routing, JWT, rate limiting, CORS, request
+# size limits and correlation IDs. The Admin API (8001) is never published.
+#
+# JWT note: Connectly's backend issues HS256 tokens. The `jwt` plugin below
+# verifies them at the edge using the same secret (injected via the
+# KONG_VAULT env var — never committed). The plugin is configured with
+# `anonymous: <uuid of connetly-public consumer>` so requests WITHOUT a
+# token still pass through and are authorized by the backend (which enforces
+# per-endpoint rules and its own ownership checks) — this keeps public
+# endpoints (register/login/verify-otp/explore) working unchanged while
+# invalid-but-present tokens are still rejected by Kong (401).
+_format_version: "3.0"
+
+_transform: true
+
+services:
+
+  # ---------------- Connectly monolith (all /api/v1/** routes) ----------------
+  - name: connectly-backend
+    # Docker DNS name from docker-compose.kong.yml — never localhost.
+    url: http://connectly-backend:8080
+    connect_timeout: 5000
+    read_timeout: 60000
+    write_timeout: 60000
+    retries: 0
+    routes:
+      - name: connectly-api
+        paths:
+          - /api/v1
+        strip_path: false
+        protocols:
+          - http
+          - https
+
+  # ---------------- WebSocket (STOMP) ----------------
+  - name: connectly-ws
+    url: http://connectly-backend:8080
+    connect_timeout: 5000
+    # Streaming traffic: generous read timeout, no retries.
+    read_timeout: 3600000
+    write_timeout: 3600000
+    retries: 0
+    routes:
+      - name: connectly-ws-route
+        paths:
+          - /ws
+        strip_path: false
+        protocols:
+          - http
+          - https
+
+consumers:
+
+  # Application client — issued by the backend, verified at the edge.
+  # iss claim = connectly (set in JwtService.ISSUER) matches `key` below.
+  - username: connetly-client
+    id: c0nnec7-1y00-4a11-9c1e-000000000001
+    jwt_secrets:
+      - key: connectly
+        algorithm: HS256
+        # Injected at boot from the environment via the env vault
+        # (KONG_VAULT_JWT_SECRET) — never hardcode the real secret.
+        secret: "{vault://env/jwt-secret}"
+
+  # Anonymous consumer identity so the jwt plugin can run in pass-through
+  # mode (public endpoints keep working; invalid tokens still 401).
+  - username: connetly-public
+    id: c0nnec7-1y00-4a11-9c1e-000000000002
+
+plugins:
+
+  # ---------------- JWT verification at the edge ----------------
+  - name: jwt
+    config:
+      # = id of the connetly-public consumer (pass-through mode).
+      anonymous: "c0nnec7-1y00-4a11-9c1e-000000000002"
+      claims_to_verify:
+        exp: true
+        nbf: true
+      key_claim_name: iss
+      run_on_preflight: false
+
+  # ---------------- CORS ----------------
+  - name: cors
+    config:
+      # Never '*' with credentials; origins come from the environment.
+      origins:
+        - "http://localhost:5173"
+        - "http://localhost:3000"
+        - "https://connectly-seven-tau.vercel.app"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+      headers:
+        - Accept
+        - Content-Type
+        - Authorization
+      exposed_headers:
+        - X-Request-Id
+      credentials: true
+      max_age: 3600
+
+  # ---------------- Correlation ID (every request traceable) ----------------
+  - name: correlation-id
+    config:
+      header_name: X-Request-Id
+      generator: uuid
+      echo_downstream: true
+
+  # ---------------- Global request-size guard (DoS protection) ----------------
+  - name: request-size-limiting
+    config:
+      allowed_payload_size: 5 # MB — JSON APIs
+      size_unit: megabytes
+
+  # ---------------- Rate limiting (per IP; single-node policy: local) ----------------
+  # Multi-node deployments: switch policy to `redis` and wire KONG_REDIS_*.
+  - name: rate-limiting
+    route: connectly-api
+    config:
+      minute: 100
+      policy: local
+      fault_tolerant: true
+      hide_client_headers: false

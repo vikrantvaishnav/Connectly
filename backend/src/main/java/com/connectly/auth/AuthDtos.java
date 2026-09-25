@@ -31,6 +31,14 @@ public final class AuthDtos {
     public record VerifyEmailRequest(@NotBlank String token) {
     }
 
+    /** Email + 6-digit activation code from the registration email. */
+    public record VerifyOtpRequest(@NotBlank @Email String email, @NotBlank String code) {
+    }
+
+    /** Register response: no session yet — an OTP was emailed to this masked address. */
+    public record OtpRequiredResponse(String maskedEmail, long expiresInSec) {
+    }
+
     public record ForgotPasswordRequest(@NotBlank @Email String email) {
     }
 

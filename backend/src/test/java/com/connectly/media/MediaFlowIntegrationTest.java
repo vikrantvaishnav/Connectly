@@ -23,7 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 /**
  * Phase 5 media uploads: magic-byte validation, auth, and type rejection.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "connectly.tests.auto-activate=true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class MediaFlowIntegrationTest {
 

@@ -82,7 +82,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 }
 
 // URLs that must never trigger the refresh-retry loop (they are pre-auth by design).
-const NO_REFRESH_URLS = ['/auth/refresh', '/auth/login', '/auth/mfa/verify']
+const NO_REFRESH_URLS = ['/auth/refresh', '/auth/login', '/auth/mfa/verify', '/auth/register', '/auth/verify-otp']
 
 api.interceptors.response.use(
   (res) => res,

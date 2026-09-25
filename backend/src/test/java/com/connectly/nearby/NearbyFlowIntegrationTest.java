@@ -20,7 +20,7 @@ import static org.assertj.core.api.Assertions.within;
  * Phase 3 nearby discovery over real HTTP. The privacy invariants are the point:
  * hidden users never appear, coordinates never leave the server, radius is clamped.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "connectly.tests.auto-activate=true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class NearbyFlowIntegrationTest {
 

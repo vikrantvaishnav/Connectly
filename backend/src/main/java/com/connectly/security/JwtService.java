@@ -20,6 +20,9 @@ public class JwtService {
     public static final String CLAIM_ROLE = "role";
     public static final String CLAIM_TYPE = "typ";
     public static final String CLAIM_SESSION = "sid";
+    /** iss/aud make the tokens verifiable at an edge gateway (e.g. Kong JWT plugin). */
+    public static final String ISSUER = "connectly";
+    public static final String AUDIENCE = "connectly-api";
     public static final String TYPE_ACCESS = "access";
     public static final String TYPE_REFRESH = "refresh";
     public static final String TYPE_MFA = "mfa";
@@ -44,6 +47,8 @@ public class JwtService {
         Instant now = Instant.now();
         var builder = Jwts.builder()
                 .subject(String.valueOf(user.getId()))
+                .issuer(ISSUER)
+                .claim("aud", AUDIENCE)
                 .claim(CLAIM_ROLE, user.getRole().name())
                 .claim(CLAIM_TYPE, TYPE_ACCESS)
                 .claim("username", user.getUsername());
@@ -51,6 +56,7 @@ public class JwtService {
             builder.claim(CLAIM_SESSION, sessionId);
         }
         return builder
+                .id(java.util.UUID.randomUUID().toString())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(now.plusSeconds(props.jwt().accessTtlSeconds())))
                 .signWith(key)

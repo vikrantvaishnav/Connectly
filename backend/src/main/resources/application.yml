@@ -7,6 +7,11 @@ spring:
     username: ${DB_USERNAME:connectly}
     password: ${DB_PASSWORD:connectly}
     driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 10000
+      max-lifetime: 1800000
 
   jpa:
     hibernate:
@@ -34,6 +39,12 @@ server:
   port: ${SERVER_PORT:8080}
   error:
     include-stacktrace: never
+  # Compress JSON responses — typically 5-10x smaller over the wire, which is
+  # the single cheapest latency win for mobile/slow connections.
+  compression:
+    enabled: true
+    mime-types: application/json,text/plain,text/html
+    min-response-size: 2048
 
 management:
   endpoints:

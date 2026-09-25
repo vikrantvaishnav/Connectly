@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Phase 6: community lifecycle, membership roles, channels, channel messaging,
  * and access control (non-members get 404 on member-only surfaces).
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "connectly.tests.auto-activate=true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class CommunityFlowIntegrationTest {
 

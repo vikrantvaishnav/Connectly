@@ -21,7 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Phase 7: voice room lifecycle — create/join/mute/leave/close with
  * host-only close and participant-sync guarantees.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "connectly.tests.auto-activate=true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class VoiceRoomIntegrationTest {
 

@@ -38,6 +38,20 @@ public class MailService {
         deliver(to, subject, body);
     }
 
+    /** Sends the 6-digit account activation code. */
+    public void sendRegistrationOtp(String to, String code) {
+        String subject = "Your Connectly activation code: " + code;
+        String body = """
+                Welcome to Connectly!
+
+                Your activation code is: %s
+
+                It expires in 15 minutes. Enter it in the app to activate your account.
+                If you didn't create an account, you can ignore this email.
+                """.formatted(code);
+        deliver(to, subject, body);
+    }
+
     public void sendPasswordResetEmail(String to, String token) {
         String subject = "Reset your Connectly password";
         String body = """

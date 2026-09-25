@@ -10,6 +10,7 @@ import com.connectly.user.UserProfileRepository;
 import com.connectly.user.UserRepository;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -48,6 +49,8 @@ public class AuthService {
     private final AuditLogRepository auditLogs;
     private final LoginGuard loginGuard;
     private final SessionGuard sessionGuard;
+    private final EmailOtpCodeRepository emailOtps;
+    private final ApplicationEventPublisher events;
 
     public AuthService(UserRepository users, UserProfileRepository profiles,
             AuthSessionRepository sessions, AuthTokenRepository tokens,
@@ -57,7 +60,9 @@ public class AuthService {
             PasswordEncoder passwordEncoder, MailService mailService,
             LoginGuard loginGuard, SessionGuard sessionGuard,
             com.connectly.notification.NotificationRepository notifications,
-            AuditLogRepository auditLogs) {
+            AuditLogRepository auditLogs,
+            EmailOtpCodeRepository emailOtps,
+            ApplicationEventPublisher events) {
         this.users = users;
         this.profiles = profiles;
         this.sessions = sessions;
@@ -74,6 +79,8 @@ public class AuthService {
         this.auditLogs = auditLogs;
         this.loginGuard = loginGuard;
         this.sessionGuard = sessionGuard;
+        this.emailOtps = emailOtps;
+        this.events = events;
     }
 
     // ---------- registration ----------
@@ -103,27 +110,145 @@ public class AuthService {
         profile.setLastName(req.lastName());
         profiles.save(profile);
 
-        issueEmailToken(user, AuthToken.Type.VERIFY_EMAIL, Duration.ofHours(24));
+        issueRegistrationOtp(user, http);
 
         audit.record(user.getId(), AuditService.REGISTER, "username=" + username,
                 WebUtil.clientIp(http), WebUtil.userAgent(http));
 
+        // Fired after the transaction commits — test contexts hook this to
+        // auto-activate accounts; production code ignores it.
+        events.publishEvent(new RegistrationCompletedEvent(user.getId(), user.getEmail()));
+
         return AuthDtos.UserDto.from(user);
     }
 
-    /** Auto-login payload for a fresh registration — nobody should be stuck at a "check your email" wall. */
-    public record RegisterResult(AuthDtos.UserDto user, AuthDtos.AuthResponse auth) {}
+    /** No session is issued at registration — the account activates only after the emailed OTP. */
+    public record RegisterResult(AuthDtos.UserDto user, AuthDtos.OtpRequiredResponse otp) {}
 
     /**
-     * Registers the account, emails the verification link, and returns a full
-     * session so the client can go straight into the app. Verification stays
-     * enforced later per-feature (e.g. password recovery needs a verified email).
+     * Registers the account and emails a 6-digit activation code. The account
+     * stays dormant (unverifiable at login) until the code is confirmed, so no
+     * account can ever exist or be used without OTP verification.
      */
     @Transactional
     public RegisterResult registerAndLogin(AuthDtos.RegisterRequest req, HttpServletRequest http) {
         AuthDtos.UserDto user = register(req, http);
-        User fresh = findByIdentifier(user.username()).orElseThrow();
-        return new RegisterResult(user, issueTokens(fresh, http));
+        return new RegisterResult(user,
+                new AuthDtos.OtpRequiredResponse(maskEmail(user.email()), OTP_TTL.toSeconds()));
+    }
+
+    /** joe.doe@gmail.com → j•••@g•••.com — enough to know which inbox to check. */
+    static String maskEmail(String email) {
+        int at = email.indexOf('@');
+        if (at <= 0) return "•••";
+        String local = email.substring(0, at);
+        String domain = email.substring(at + 1);
+        int dot = domain.lastIndexOf('.');
+        String dpart = dot > 0 ? domain.substring(0, dot) : domain;
+        String tld = dot > 0 ? domain.substring(dot) : "";
+        return local.charAt(0) + "•••@" + (dpart.isEmpty() ? "" : dpart.charAt(0)) + "•••" + tld;
+    }
+
+    // ---------- registration OTP ----------
+
+    /** Lifetime of the emailed activation code. */
+    static final Duration OTP_TTL = Duration.ofMinutes(15);
+    /** Max codes requestable per email per rolling window. */
+    private static final int OTP_MAX_PER_WINDOW = 5;
+    private static final Duration OTP_WINDOW = Duration.ofHours(1);
+    /** Codes are 6 digits, zero-padded. */
+    private static final java.security.SecureRandom OTP_RANDOM = new java.security.SecureRandom();
+
+    /**
+     * Generates a fresh 6-digit activation code for the account's email,
+     * replacing any previous code (only the newest works). Rate limited per
+     * email and per IP; the code is stored hashed and delivered by email.
+     */
+    @Transactional
+    public AuthDtos.MessageResponse issueRegistrationOtp(User user, HttpServletRequest http) {
+        String email = user.getEmail();
+
+        long recent = emailOtps.countByEmailIgnoreCaseAndCreatedAtAfter(email, Instant.now().minus(OTP_WINDOW));
+        if (recent >= OTP_MAX_PER_WINDOW) {
+            throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "OTP_LIMIT",
+                    "Too many activation codes requested. Try again later.");
+        }
+
+        String code = String.format("%06d", OTP_RANDOM.nextInt(1_000_000));
+        EmailOtpCode row = emailOtps.findByEmailIgnoreCase(email).orElseGet(EmailOtpCode::new);
+        row.setEmail(email);
+        row.setCodeHash(tokenService.sha256(code));
+        row.setAttempts(0);
+        row.setUsedAt(null);
+        row.setExpiresAt(Instant.now().plus(OTP_TTL));
+        emailOtps.save(row);
+
+        mailService.sendRegistrationOtp(email, code);
+        audit.record(user.getId(), "OTP_ISSUED", "email=" + email,
+                WebUtil.clientIp(http), WebUtil.userAgent(http));
+        return new AuthDtos.MessageResponse("Activation code sent. Check your email.");
+    }
+
+    /**
+     * Activates the account: checks email + code, marks the email verified,
+     * burns the code and issues the first real session. Uniform error text so
+     * the endpoint can't be used to enumerate which emails are registered.
+     */
+    @Transactional
+    public AuthDtos.AuthResponse verifyRegistrationOtp(AuthDtos.VerifyOtpRequest req,
+            HttpServletRequest http) {
+        String email = req.email().trim().toLowerCase(Locale.ROOT);
+
+        if (req.code() == null || !req.code().matches("\\d{6}")) {
+            throw ApiException.badRequest("Enter the 6-digit code from your email");
+        }
+
+        EmailOtpCode row = emailOtps.findByEmailIgnoreCase(email)
+                .filter(EmailOtpCode::isUsable)
+                .orElseThrow(() -> ApiException.badRequest("Invalid or expired code. Request a new one."));
+
+        if (!tokenService.sha256(req.code()).equals(row.getCodeHash())) {
+            row.setAttempts(row.getAttempts() + 1);
+            emailOtps.save(row);
+            if (row.getAttempts() >= 5) {
+                // Burned: a new code must be requested.
+                throw ApiException.badRequest("Invalid or expired code. Request a new one.");
+            }
+            throw ApiException.badRequest("That code is not correct. Check the latest email and try again.");
+        }
+
+        User user = users.findByEmailIgnoreCase(email)
+                .orElseThrow(() -> ApiException.badRequest("Invalid or expired code. Request a new one."));
+
+        if (user.isEmailVerified()) {
+            throw ApiException.conflict("Account is already activated. Please log in.");
+        }
+
+        row.markUsed();
+        emailOtps.save(row);
+        emailOtps.deleteByEmailIgnoreCase(email);
+        user.setEmailVerified(true);
+        users.save(user);
+
+        audit.record(user.getId(), AuditService.EMAIL_VERIFIED, "otp-activated",
+                WebUtil.clientIp(http), WebUtil.userAgent(http));
+        audit.record(user.getId(), AuditService.LOGIN_SUCCESS, WebUtil.deviceLabel(http),
+                WebUtil.clientIp(http), WebUtil.userAgent(http));
+        return issueTokens(user, http);
+    }
+
+    /**
+     * Re-issues the activation code for a dormant (unverified) account.
+     * Deliberately vague — never reveals whether the email is registered.
+     */
+    @Transactional
+    public AuthDtos.MessageResponse resendRegistrationOtp(String email, HttpServletRequest http) {
+        String normalized = email == null ? "" : email.trim().toLowerCase(Locale.ROOT);
+        users.findByEmailIgnoreCase(normalized)
+                .filter(u -> !u.isEmailVerified())
+                .ifPresent(u -> issueRegistrationOtp(u, http));
+        audit.record(null, "OTP_RESEND", "email=" + normalized, WebUtil.clientIp(http), WebUtil.userAgent(http));
+        return new AuthDtos.MessageResponse("If that email needs activation, a new code is on its way.");
     }
 
     /**
@@ -210,6 +335,14 @@ public class AuthService {
         }
 
         loginGuard.recordSuccess(user);
+
+        if (!user.isEmailVerified()) {
+            // Dormant account: credentials are correct, but the account was
+            // never activated. No session, no enumeration hints.
+            audit.record(user.getId(), AuditService.LOGIN_FAILURE, "email not verified", ip, ua);
+            throw new ApiException(HttpStatus.FORBIDDEN, "EMAIL_NOT_VERIFIED",
+                    "Account is not activated. Enter the code we emailed you, or request a new one.");
+        }
 
         if (user.isTotpEnabled()) {
             if (req.totpCode() == null || req.totpCode().isBlank()) {

@@ -36,12 +36,28 @@ public class AuthController {
     // ---------- public ----------
 
     @PostMapping("/register")
-    public ResponseEntity<AuthDtos.AuthResponse> register(@Valid @RequestBody AuthDtos.RegisterRequest req,
+    public ResponseEntity<AuthDtos.OtpRequiredResponse> register(@Valid @RequestBody AuthDtos.RegisterRequest req,
             HttpServletRequest http) {
         limit(http, "register", props.rateLimit().register());
-        // Returns a full session: registration logs you in, so a lost/undelivered
-        // verification email can never lock someone out of the account they made.
-        return ResponseEntity.status(201).body(authService.registerAndLogin(req, http).auth());
+        // No session is issued here. The account activates only after the
+        // emailed 6-digit code is confirmed at /auth/verify-otp.
+        return ResponseEntity.status(201).body(authService.registerAndLogin(req, http).otp());
+    }
+
+    /** Step 2 of registration: exchange the emailed 6-digit code for a real session. */
+    @PostMapping("/verify-otp")
+    public AuthDtos.AuthResponse verifyOtp(@Valid @RequestBody AuthDtos.VerifyOtpRequest req,
+            HttpServletRequest http) {
+        limit(http, "verify-otp", props.rateLimit().verifyEmail());
+        return authService.verifyRegistrationOtp(req, http);
+    }
+
+    /** Re-issues the activation code for a dormant account (vague on purpose). */
+    @PostMapping("/resend-otp")
+    public AuthDtos.MessageResponse resendOtp(@Valid @RequestBody AuthDtos.ForgotPasswordRequest req,
+            HttpServletRequest http) {
+        limit(http, "resend-otp", props.rateLimit().verifyEmail());
+        return authService.resendRegistrationOtp(req.email(), http);
     }
 
     /** Re-send the verification email for the signed-in account. */

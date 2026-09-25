@@ -1,0 +1,110 @@
+# Connectly — Gateway topology (Kong + backend + Redis).
+#
+#   Browser/Mobile → Kong (:8000 proxy, :8443 TLS) → connectly-backend (:8080, internal only)
+#
+# The backend has NO public ports here — Kong is the only entrypoint.
+# The existing root docker-compose.yml stays untouched (dev convenience);
+# this file is the edge topology used with `docker compose -f ... up`.
+#
+# Requires Docker. On the current dev machine (no Docker) this is validated
+# by CI/script instead of executed — see infra/README.md.
+
+services:
+  kong:
+    # Pinned — never `latest` in production topology.
+    image: kong/kong-gateway:3.9.1.0
+    container_name: connetly-kong
+    restart: unless-stopped
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/declarative/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_LISTEN: 0.0.0.0:8001
+      # JWT verification material via the env vault ({vault://env/jwt-secret})
+      KONG_VAULT: "env/"
+      KONG_VAULT_JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      KONG_LOG_LEVEL: notice
+    volumes:
+      - ./infra/kong/kong.yml:/kong/declarative/kong.yml:ro
+      - ./infra/kong/kong.conf:/kong/kong.conf:ro
+    ports:
+      - "8000:8000"   # HTTP proxy — the ONLY public port
+      - "8443:8443"   # HTTPS proxy (self-signed cert in dev)
+      # NOTE: 8001 (Admin API) deliberately NOT published.
+    networks:
+      - connetly-network
+
+  connectly-backend:
+    build: ./backend
+    container_name: connetly-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-connectly}
+      DB_USERNAME: ${DB_USERNAME:-connectly}
+      DB_PASSWORD: ${DB_PASSWORD:-connectly}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost:3000
+      SERVER_PORT: 8080
+      MAIL_MODE: ${MAIL_MODE:-log}
+    expose:
+      - "8080"        # internal only — Kong reaches it over connetly-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "sh", "-c", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - connetly-network
+
+  mysql:
+    image: mysql:8.4
+    container_name: connetly-mysql
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-connectly}
+      MYSQL_USER: ${DB_USERNAME:-connectly}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-connectly}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    # No public port — the DB is reachable only inside connetly-network.
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - connetly-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: connetly-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    expose:
+      - "6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - connetly-network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  connetly-network:
+    driver: bridge

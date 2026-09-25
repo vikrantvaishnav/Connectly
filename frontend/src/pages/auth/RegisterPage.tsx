@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { apiErrorMessage } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
@@ -10,6 +10,7 @@ interface FieldErrors {
   email?: string
   password?: string
   confirm?: string
+  code?: string
   server?: string
 }
 
@@ -26,6 +27,8 @@ function passwordStrength(pw: string): { score: number; label: string; color: st
 
 export function RegisterPage() {
   const register = useAuthStore((s) => s.register)
+  const verifyRegistrationOtp = useAuthStore((s) => s.verifyRegistrationOtp)
+  const resendRegistrationOtp = useAuthStore((s) => s.resendRegistrationOtp)
   const pushToast = useAppStore((s) => s.pushToast)
   const navigate = useNavigate()
 
@@ -34,6 +37,14 @@ export function RegisterPage() {
   })
   const [errors, setErrors] = useState<FieldErrors>({})
   const [busy, setBusy] = useState(false)
+
+  // OTP step state — the account exists but stays dormant until the code is confirmed.
+  const [step, setStep] = useState<'form' | 'otp'>('form')
+  const [pendingEmail, setPendingEmail] = useState('')
+  const [maskedEmail, setMaskedEmail] = useState('')
+  const [code, setCode] = useState('')
+  const [resending, setResending] = useState(false)
+  const otpInput = useRef<HTMLInputElement>(null)
 
   const strength = useMemo(() => passwordStrength(form.password), [form.password])
 
@@ -55,15 +66,17 @@ export function RegisterPage() {
 
     setBusy(true)
     try {
-      await register({
+      const { maskedEmail: masked } = await register({
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         username: form.username.toLowerCase(),
         email: form.email.toLowerCase(),
         password: form.password,
       })
-      pushToast('Welcome to Connectly! 🎉', '✅')
-      navigate('/home')
+      setPendingEmail(form.email.toLowerCase())
+      setMaskedEmail(masked || form.email)
+      setStep('otp')
+      setTimeout(() => otpInput.current?.focus(), 50)
     } catch (err) {
       setErrors({ server: apiErrorMessage(err) })
     } finally {
@@ -71,10 +84,112 @@ export function RegisterPage() {
     }
   }
 
+  const submitOtp = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!/^\d{6}$/.test(code)) {
+      setErrors({ code: 'Enter the 6-digit code from your email' })
+      return
+    }
+    setBusy(true)
+    setErrors({})
+    try {
+      await verifyRegistrationOtp(pendingEmail, code)
+      pushToast('Account activated — welcome to Connectly! 🎉', '✅')
+      navigate('/home')
+    } catch (err) {
+      setErrors({ code: apiErrorMessage(err) })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const resend = async () => {
+    setResending(true)
+    try {
+      await resendRegistrationOtp(pendingEmail)
+      pushToast('A new activation code is on its way', '📬')
+    } catch (err) {
+      setErrors({ code: apiErrorMessage(err) })
+    } finally {
+      setResending(false)
+    }
+  }
+
   const inputCls = (bad?: string) =>
     `w-full rounded-xl border bg-[var(--surface-2)] px-3 py-2.5 text-sm outline-none transition-colors ${
       bad ? 'border-rose-500' : 'border-[var(--border)] focus:border-[var(--accent)]'
     }`
+
+  if (step === 'otp') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-4">
+        <div className="animate-fade-up w-full max-w-md rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-8">
+          <div className="mb-6 text-center">
+            <p className="text-3xl font-bold text-indigo-400">Connectly</p>
+            <p className="mt-1 text-sm text-[var(--muted)]">Check your email</p>
+          </div>
+
+          <p className="mb-6 text-center text-sm text-[var(--muted)]">
+            We sent a 6-digit activation code to <strong className="text-[var(--text)]">{maskedEmail}</strong>.
+            Enter it below to activate your account — the code expires in 15 minutes.
+          </p>
+
+          <form className="space-y-4" onSubmit={submitOtp} noValidate>
+            <div>
+              <label htmlFor="reg-otp" className="mb-1 block text-sm font-medium">Activation code</label>
+              <input
+                id="reg-otp"
+                ref={otpInput}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                maxLength={6}
+                value={code}
+                onChange={(e) => {
+                  setCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                  setErrors((prev) => ({ ...prev, code: undefined, server: undefined }))
+                }}
+                className={`${inputCls(errors.code)} text-center text-2xl tracking-[0.5em]`}
+                placeholder="••••••"
+              />
+              {errors.code && <p className="mt-1 text-xs text-rose-500">{errors.code}</p>}
+            </div>
+
+            <button
+              type="submit"
+              disabled={busy || code.length !== 6}
+              className="w-full rounded-xl bg-[var(--accent)] py-2.5 text-sm font-medium text-white transition-all hover:bg-[var(--accent-hover)] active:scale-[0.98] disabled:opacity-50"
+            >
+              {busy ? 'Activating…' : 'Activate account'}
+            </button>
+
+            <button
+              type="button"
+              onClick={resend}
+              disabled={resending}
+              className="w-full rounded-xl border border-[var(--border)] py-2.5 text-sm font-medium text-[var(--muted)] transition-colors hover:bg-[var(--surface-2)] disabled:opacity-50"
+            >
+              {resending ? 'Sending…' : 'Resend code'}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-[var(--muted)]">
+            Wrong address?{' '}
+            <button
+              type="button"
+              className="font-medium text-indigo-400 hover:text-indigo-300"
+              onClick={() => {
+                setStep('form')
+                setCode('')
+                setErrors({})
+              }}
+            >
+              Go back
+            </button>
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-4">

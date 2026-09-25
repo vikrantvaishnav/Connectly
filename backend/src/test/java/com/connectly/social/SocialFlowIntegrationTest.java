@@ -24,7 +24,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * registration → posts → object-level authorization → visibility rules →
  * likes → comments → follows → connection state machine.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "connectly.tests.auto-activate=true")
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SocialFlowIntegrationTest {
 

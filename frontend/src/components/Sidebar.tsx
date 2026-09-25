@@ -30,13 +30,13 @@ export function Sidebar() {
       return convs.data.reduce((n, c) => n + c.unread, 0)
     },
     enabled: !!authUser,
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
   })
   const unreadNotifs = useQuery({
     queryKey: ['topbar-unread'],
     queryFn: async () => (await api.get<{ count: number }>('/notifications/unread-count')).data.count,
     enabled: !!authUser,
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
   })
 
   const badges: Record<string, number> = {
@@ -45,9 +45,13 @@ export function Sidebar() {
     notifications: unreadNotifs.data ?? 0,
   }
 
+  // Settings (and through it, account deletion) only makes sense signed in —
+  // hide the ⚙️ for logged-out visitors.
+  const visibleItems = navItems.filter((item) => item.to !== '/settings' || !!authUser)
+
   return (
     <nav className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border)] p-3 md:flex">
-      {navItems.map((item) => {
+      {visibleItems.map((item) => {
         const badge = item.badge ? (badges[item.badge] ?? 0) : 0
         return (
           <NavLink

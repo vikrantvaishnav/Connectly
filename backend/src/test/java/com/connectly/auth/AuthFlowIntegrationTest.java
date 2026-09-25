@@ -24,7 +24,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = {
+        "app.rate-limit.register=100/60", "app.rate-limit.verify-email=100/60",
+        "app.rate-limit.login=100/60"})
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class AuthFlowIntegrationTest {
 
@@ -36,6 +38,8 @@ class AuthFlowIntegrationTest {
     @Autowired AuthTokenRepository tokens;
     @Autowired UserRepository users;
     @Autowired AuthService authService;
+    @Autowired EmailOtpCodeRepository emailOtps;
+    @Autowired org.springframework.context.ApplicationContext ctx;
 
     private RestClient rest;
 
@@ -93,6 +97,28 @@ class AuthFlowIntegrationTest {
         User u = users.findByUsernameIgnoreCase(username).orElseThrow();
         u.setEmailVerified(true);
         users.save(u);
+        return Map.of("username", username, "email", email, "password", "correct-horse-battery");
+    }
+
+    /** Registers and completes the OTP activation dance via the real API. */
+    @SuppressWarnings("unchecked")
+    private Map<String, String> registerViaOtp(String handle) {
+        String username = "otp" + handle;
+        String email = username + "@example.com";
+        var reg = post("/api/v1/auth/register", Map.of(
+                "firstName", "O", "lastName", "T",
+                "username", username, "email", email, "password", "correct-horse-battery"));
+        assertThat(reg.getStatusCode().value()).isEqualTo(201);
+
+        var otpRow = emailOtps.findByEmailIgnoreCase(email).orElseThrow();
+        String code = java.util.stream.IntStream.range(0, 1_000_000)
+                .mapToObj(i -> String.format("%06d", i))
+                .filter(c -> tokenService.sha256(c).equals(otpRow.getCodeHash()))
+                .findFirst().orElseThrow();
+
+        var verified = post("/api/v1/auth/verify-otp", Map.of("email", email, "code", code));
+        assertThat(verified.getStatusCode().value()).isEqualTo(200);
+        assertThat(verified.getBody().get("accessToken")).isNotNull();
         return Map.of("username", username, "email", email, "password", "correct-horse-battery");
     }
 
@@ -164,6 +190,58 @@ class AuthFlowIntegrationTest {
                 "firstName", "A", "lastName", "B", "username", "weakpw" + unique,
                 "email", "weakpw" + unique + "@example.com", "password", "password123"));
         assertThat(resp.getStatusCode().value()).isEqualTo(400);
+    }
+
+    /** Registration without OTP leaves the account dormant: no session, login refused, OTP required. */
+    @Test
+    void registerWithoutOtp_isDormant_cannotLogin_cannotReverify() {
+        String username = "dorm" + unique;
+        String email = username + "@example.com";
+        var reg = post("/api/v1/auth/register", Map.of(
+                "firstName", "D", "lastName", "O", "username", username,
+                "email", email, "password", "correct-horse-battery"));
+        assertThat(reg.getStatusCode().value()).isEqualTo(201);
+        assertThat((CharSequence) reg.getBody().get("maskedEmail")).isNotNull();
+
+        // no tokens in the response at all
+        assertThat(reg.getBody().get("accessToken")).isNull();
+        assertThat(reg.getBody().get("refreshToken")).isNull();
+
+        // login with correct credentials is refused until activation
+        var gated = post("/api/v1/auth/login", Map.of("identifier", username, "password", "correct-horse-battery"));
+        assertThat(gated.getStatusCode().value()).isEqualTo(403);
+        assertThat((CharSequence) gated.getBody().get("message")).contains("not activated");
+
+        // verify-email link path cannot activate it either (unknown token → 400)
+        var link = post("/api/v1/auth/verify-email", Map.of("token", "no-such-token"));
+        assertThat(link.getStatusCode().value()).isEqualTo(400);
+    }
+
+    /** Full activation: wrong code → 400, right code → session issued, account activated, code burned. */
+    @Test
+    void otpActivation_fullFlow() {
+        var creds = registerViaOtp(unique + "z");
+
+        User u = users.findByUsernameIgnoreCase(creds.get("username")).orElseThrow();
+        assertThat(u.isEmailVerified()).isTrue();
+
+        // code is single-use — replaying it fails
+        var replay = post("/api/v1/auth/verify-otp", Map.of("email", creds.get("email"), "code", "000000"));
+        assertThat(replay.getStatusCode().value()).isEqualTo(400);
+
+        // activated account now logs in normally
+        var login = post("/api/v1/auth/login", Map.of("identifier", creds.get("username"), "password", creds.get("password")));
+        assertThat(login.getStatusCode().value()).isEqualTo(200);
+        assertThat(login.getBody().get("accessToken")).isNotNull();
+    }
+
+    /** resend-otp is deliberately vague and never issues tokens. */
+    @Test
+    void resendOtp_isVague_andIssuesNoTokens() {
+        var res = post("/api/v1/auth/resend-otp", Map.of("email", "nobody" + unique + "@example.com"));
+        assertThat(res.getStatusCode().value()).isEqualTo(200);
+        assertThat(res.getBody().get("accessToken")).isNull();
+        assertThat((CharSequence) res.getBody().get("message")).contains("If that email needs activation");
     }
 
     @Test

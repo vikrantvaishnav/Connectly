@@ -29,7 +29,12 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 30_000,
+      // Keep visited pages' data hot: navigating back is instant instead of
+      // re-hitting the API, which matters a lot on Render's free tier.
+      staleTime: 60_000,
+      gcTime: 5 * 60_000,
+      // Refetching everything on every tab focus made the app feel sluggish.
+      refetchOnWindowFocus: false,
     },
   },
 })
