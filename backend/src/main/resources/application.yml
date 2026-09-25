@@ -34,6 +34,11 @@ spring:
     properties:
       mail.smtp.auth: true
       mail.smtp.starttls.enable: true
+      # Hard timeouts: a misconfigured SMTP host must NEVER hang registration
+      # (JavaMail's defaults are infinite).
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 8000
+      mail.smtp.writetimeout: 5000
 
 server:
   port: ${SERVER_PORT:8080}
