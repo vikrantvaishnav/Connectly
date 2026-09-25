@@ -488,6 +488,39 @@ class FullApplicationUatTest {
         assertThat(getStatus("/api/v1/communities/" + communityId + "/channels", moleAccess)).isEqualTo(404);
     }
 
+    @Test @Order(61)
+    @SuppressWarnings("unchecked")
+    void channel_typing_and_reactions_are_member_only() {
+        // typing pings: members yes, outsiders no
+        assertThat(postStatus("/api/v1/communities/channels/" + channelId + "/typing", Map.of(), ravenAccess))
+                .isEqualTo(204);
+        assertThat(postStatus("/api/v1/communities/channels/" + channelId + "/typing", Map.of(), moleAccess))
+                .isEqualTo(404);
+
+        // atlas (owner) reacts to raven's channel message
+        var react = postListBody("/api/v1/communities/channel-messages/" + channelMessageId + "/reactions",
+                Map.of("emoji", "🔥"), atlasAccess);
+        assertThat(react.get(0)).containsEntry("emoji", "🔥").containsEntry("mine", true);
+        assertThat(((Number) react.get(0).get("count")).longValue()).isEqualTo(1);
+
+        // raven sees atlas's reaction as someone else's
+        List<Map<String, Object>> seen = (List<Map<String, Object>>) getList(
+                "/api/v1/communities/channels/" + channelId + "/messages?size=50", ravenAccess).getBody();
+        Map<String, Object> target = seen.stream()
+                .filter(x -> ((Number) x.get("id")).longValue() == channelMessageId)
+                .findFirst().orElseThrow();
+        assertThat((List<Map<String, Object>>) target.get("reactions"))
+                .anySatisfy(r -> assertThat(r).containsEntry("emoji", "🔥").containsEntry("mine", false));
+
+        // an outsider cannot react to a community's channel message
+        assertThat(postStatus("/api/v1/communities/channel-messages/" + channelMessageId + "/reactions",
+                Map.of("emoji", "🔥"), moleAccess)).isEqualTo(404);
+
+        // toggling the same emoji removes it
+        assertThat(postListBody("/api/v1/communities/channel-messages/" + channelMessageId + "/reactions",
+                Map.of("emoji", "🔥"), atlasAccess)).isEmpty();
+    }
+
     // ---------- 7. voice rooms ----------
 
     @Test @Order(70)

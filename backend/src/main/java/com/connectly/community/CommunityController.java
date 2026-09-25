@@ -31,6 +31,8 @@ public class CommunityController {
 
     public record SendMessageRequest(@NotBlank @Size(max = 4000) String content) {}
 
+    public record ReactionRequest(@NotBlank @Size(max = 16) String emoji) {}
+
     private void limit(String key, int n, int window) {
         if (!rateLimiter.allow(key, n, window)) {
             throw com.connectly.common.error.ApiException.tooManyRequests("Too many requests, slow down");
@@ -100,5 +102,23 @@ public class CommunityController {
                                                     @RequestBody SendMessageRequest req) {
         limit("channel-send:" + me.getUsername(), 90, 60);
         return communities.sendMessage(me, channelId, req.content());
+    }
+
+    /** "I am typing" ping for a channel — relayed to members, never stored. */
+    @PostMapping("/channels/{channelId}/typing")
+    public org.springframework.http.ResponseEntity<Void> typing(@AuthenticationPrincipal User me,
+                                                                @PathVariable long channelId) {
+        limit("channel-typing:" + me.getUsername(), 120, 60);
+        communities.typing(me, channelId);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
+    /** Toggle an emoji reaction on a channel message; returns the updated tallies. */
+    @PostMapping("/channel-messages/{messageId}/reactions")
+    public List<CommunityService.ReactionView> react(@AuthenticationPrincipal User me,
+                                                     @PathVariable long messageId,
+                                                     @RequestBody ReactionRequest req) {
+        limit("channel-react:" + me.getUsername(), 120, 60);
+        return communities.toggleReaction(me, messageId, req.emoji());
     }
 }

@@ -31,3 +31,12 @@ interface ChannelMessageRepository extends JpaRepository<ChannelMessage, Long> {
     @Query("select m from ChannelMessage m join fetch m.sender where m.channel.id = :channelId order by m.id desc")
     List<ChannelMessage> findByChannelIdOrderByIdDesc(@Param("channelId") Long channelId, Pageable pageable);
 }
+
+interface ChannelMessageReactionRepository extends JpaRepository<ChannelMessageReaction, Long> {
+    Optional<ChannelMessageReaction> findByChannelMessageIdAndUserIdAndEmoji(
+            Long channelMessageId, Long userId, String emoji);
+
+    /** All reactions on a page of channel messages — one query, aggregated in memory. */
+    @Query("select r.channelMessage.id, r.user.id, r.emoji from ChannelMessageReaction r where r.channelMessage.id in :ids")
+    List<Object[]> findAllFor(@Param("ids") Collection<Long> ids);
+}

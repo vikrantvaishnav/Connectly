@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, apiErrorMessage } from '../lib/api'
+import { Client } from '@stomp/stompjs'
+import { api, apiErrorMessage, getAccessToken, wsUrl } from '../lib/api'
 import { useAppStore } from '../store/appStore'
+import { useAuthStore } from '../store/authStore'
 import { Avatar } from '../components/Avatar'
 import { VoiceRoom } from '../components/VoiceRooms'
 
@@ -30,6 +32,12 @@ interface ChannelView { id: number; name: string; topic: string | null }
 
 interface MemberView { userId: number; username: string; name: string; role: string }
 
+interface ChannelReaction {
+  emoji: string
+  count: number
+  mine: boolean
+}
+
 interface ChannelMessageView {
   id: number
   senderId: number
@@ -38,7 +46,11 @@ interface ChannelMessageView {
   content: string
   createdAt: string
   mine: boolean
+  reactions: ChannelReaction[]
 }
+
+/** Quick reactions offered on hover — the same set as direct messages. */
+const QUICK_REACTIONS = ['❤️', '🔥', '😂', '👍', '😮', '🥰']
 
 export function RealCommunitiesPage() {
   const queryClient = useQueryClient()
@@ -357,9 +369,47 @@ function CommunityDetail({ id, onBack, onLeave }: { id: number; onBack: () => vo
 
 function ChannelChat({ channelId, channelName }: { channelId: number; channelName: string }) {
   const pushToast = useAppStore((s) => s.pushToast)
+  const me = useAuthStore((s) => s.user)
   const queryClient = useQueryClient()
   const [draft, setDraft] = useState('')
+  const [typingName, setTypingName] = useState<string | null>(null)
+  const [typingUntil, setTypingUntil] = useState(0)
+  const [tick, setTick] = useState(Date.now())
+  const [reactingTo, setReactingTo] = useState<number | null>(null)
+  const lastTypingPing = useRef(0)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Drives the "is typing…" expiry without re-rendering on every keystroke.
+  useEffect(() => {
+    const t = setInterval(() => setTick(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
+  // Live typing pings for this channel. The topic is membership-gated server-side,
+  // so subscribing here is only ever successful for actual community members.
+  useEffect(() => {
+    if (!me?.id) return
+    const client = new Client({
+      brokerURL: wsUrl(),
+      connectHeaders: { Authorization: `Bearer ${getAccessToken() ?? ''}` },
+      reconnectDelay: 3000,
+      onConnect: () => {
+        client.subscribe(`/topic/channel/${channelId}`, (frame) => {
+          try {
+            const ping = JSON.parse(frame.body) as { type?: string; username?: string; userId?: number }
+            if (ping.type === 'channel-typing' && ping.userId !== me.id) {
+              setTypingName(ping.username ?? 'Someone')
+              setTypingUntil(Date.now() + 4_000)
+            }
+          } catch {
+            /* ignore malformed pings */
+          }
+        })
+      },
+    })
+    client.activate()
+    return () => { void client.deactivate() }
+  }, [channelId, me?.id])
 
   const messages = useQuery({
     queryKey: ['channel-messages', channelId],
@@ -382,6 +432,7 @@ function ChannelChat({ channelId, channelName }: { channelId: number; channelNam
         content,
         createdAt: new Date().toISOString(),
         mine: true,
+        reactions: [],
       }
       queryClient.setQueryData<ChannelMessageView[]>(['channel-messages', channelId], (old) => [...(old ?? []), optimistic])
       setDraft('')
@@ -403,24 +454,103 @@ function ChannelChat({ channelId, channelName }: { channelId: number; channelNam
     if (draft.trim()) send.mutate(draft.trim())
   }
 
+  /** Toggle an emoji reaction; the server returns the authoritative tallies. */
+  const react = async (messageId: number, emoji: string) => {
+    setReactingTo(null)
+    try {
+      const { data } = await api.post<ChannelReaction[]>(`/communities/channel-messages/${messageId}/reactions`, { emoji })
+      queryClient.setQueryData<ChannelMessageView[]>(['channel-messages', channelId], (old) =>
+        (old ?? []).map((m) => (m.id === messageId ? { ...m, reactions: data } : m)),
+      )
+    } catch (e) {
+      pushToast(apiErrorMessage(e), '⚠️')
+    }
+  }
+
+  /** Throttled typing ping so a fast typist sends one, not forty. */
+  const pingTyping = () => {
+    const t = Date.now()
+    if (t - lastTypingPing.current < 3000) return
+    lastTypingPing.current = t
+    void api.post(`/communities/channels/${channelId}/typing`).catch(() => { /* best-effort */ })
+  }
+
+  const isTyping = typingUntil > tick
+
   return (
     <>
       <div className="border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
         <p className="text-sm font-bold">{channelName}</p>
+        {isTyping && (
+          <p className="flex items-center gap-1 text-[11px] text-emerald-400">
+            <span className="flex gap-0.5" aria-hidden="true">
+              <span className="h-1 w-1 animate-bounce rounded-full bg-emerald-400" />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-emerald-400 [animation-delay:120ms]" />
+              <span className="h-1 w-1 animate-bounce rounded-full bg-emerald-400 [animation-delay:240ms]" />
+            </span>
+            {typingName} is typing…
+          </p>
+        )}
       </div>
       <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-4">
         {(messages.data ?? []).slice().reverse().map((m) => (
-          <div key={m.id} className={`flex gap-2 ${m.mine ? 'justify-end' : 'justify-start'}`}>
-            {!m.mine && <Avatar name={m.senderName} id={String(m.senderId)} size="xs" />}
-            <div className={`max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
-              m.mine ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface-2)]'
-            }`}>
-              {!m.mine && <p className="text-[10px] font-semibold opacity-70">{m.senderName}</p>}
-              {m.content}
-              <span className={`ml-2 text-[10px] ${m.mine ? 'text-white/70' : 'text-[var(--muted)]'}`}>
-                {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </span>
+          <div key={m.id} className={`flex flex-col ${m.mine ? 'items-end' : 'items-start'}`}>
+            <div className={`group flex max-w-[75%] items-center gap-1 ${m.mine ? 'flex-row-reverse' : 'flex-row'}`}>
+              {!m.mine && <Avatar name={m.senderName} id={String(m.senderId)} size="xs" />}
+              <button
+                type="button"
+                onClick={() => setReactingTo(reactingTo === m.id ? null : m.id)}
+                aria-label="Add reaction"
+                className="shrink-0 rounded-full px-1 text-xs opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover:opacity-100 focus:opacity-100"
+              >
+                😊
+              </button>
+              <div className={`rounded-2xl px-3.5 py-2 text-sm ${
+                m.mine ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface-2)]'
+              }`}>
+                {!m.mine && <p className="text-[10px] font-semibold opacity-70">{m.senderName}</p>}
+                {m.content}
+                <span className={`ml-2 text-[10px] ${m.mine ? 'text-white/70' : 'text-[var(--muted)]'}`}>
+                  {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
             </div>
+
+            {reactingTo === m.id && (
+              <div className="mt-1 flex gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1 shadow-sm">
+                {QUICK_REACTIONS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    onClick={() => void react(m.id, emoji)}
+                    className="rounded-full px-1 text-base transition-transform hover:scale-125"
+                    aria-label={`React ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {m.reactions.length > 0 && (
+              <div className="mt-1 flex flex-wrap gap-1">
+                {m.reactions.map((r) => (
+                  <button
+                    key={r.emoji}
+                    type="button"
+                    onClick={() => void react(m.id, r.emoji)}
+                    className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
+                      r.mine
+                        ? 'bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40'
+                        : 'bg-[var(--surface-2)] text-[var(--muted)] hover:bg-[var(--accent-soft)]'
+                    }`}
+                    title={r.mine ? 'Remove your reaction' : 'React'}
+                  >
+                    {r.emoji} {r.count}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         {messages.data?.length === 0 && (
@@ -430,7 +560,7 @@ function ChannelChat({ channelId, channelName }: { channelId: number; channelNam
       <form onSubmit={submit} className="flex gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-3">
         <input
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => { setDraft(e.target.value); pingTyping() }}
           placeholder={`Message ${channelName}…`}
           className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-sm outline-none focus:border-[var(--accent)]"
         />

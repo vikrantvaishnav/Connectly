@@ -21,18 +21,24 @@ public class CommunityService {
     private final CommunityMemberRepository members;
     private final ChannelRepository channels;
     private final ChannelMessageRepository channelMessages;
+    private final ChannelMessageReactionRepository channelReactions;
     private final com.connectly.user.UserRepository users;
     private final UserProfileRepository profiles;
+    private final com.connectly.chat.ChatPusher pusher;
 
     public CommunityService(CommunityRepository communities, CommunityMemberRepository members,
                             ChannelRepository channels, ChannelMessageRepository channelMessages,
-                            com.connectly.user.UserRepository users, UserProfileRepository profiles) {
+                            ChannelMessageReactionRepository channelReactions,
+                            com.connectly.user.UserRepository users, UserProfileRepository profiles,
+                            com.connectly.chat.ChatPusher pusher) {
         this.communities = communities;
         this.members = members;
         this.channels = channels;
         this.channelMessages = channelMessages;
+        this.channelReactions = channelReactions;
         this.users = users;
         this.profiles = profiles;
+        this.pusher = pusher;
     }
 
     // ---- DTOs ----
@@ -46,7 +52,11 @@ public class CommunityService {
     public record MemberView(long userId, String username, String name, String role) {}
 
     public record ChannelMessageView(long id, long senderId, String senderUsername, String senderName,
-                                     String content, Instant createdAt, boolean mine) {}
+                                     String content, Instant createdAt, boolean mine,
+                                     List<ReactionView> reactions) {}
+
+    /** One emoji tally on a channel message; {@code mine} drives the highlighted chip. */
+    public record ReactionView(String emoji, long count, boolean mine) {}
 
     // ---- helpers ----
 
@@ -235,11 +245,79 @@ public class CommunityService {
         Community c = requireCommunity(ch.getCommunityId());
         requireMember(c, me);
         var pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100));
-        return channelMessages.findByChannelIdOrderByIdDesc(ch.getId(), pageable).stream()
+        List<ChannelMessage> rows = channelMessages.findByChannelIdOrderByIdDesc(ch.getId(), pageable);
+        Map<Long, List<ReactionView>> byMessage = reactionsFor(rows, me.getId());
+        return rows.stream()
                 .map(msg -> new ChannelMessageView(msg.getId(), msg.getSender().getId(),
                         msg.getSender().getUsername(), nameOf(msg.getSender()), msg.getContent(),
-                        msg.getCreatedAt(), msg.getSender().getId().equals(me.getId())))
+                        msg.getCreatedAt(), msg.getSender().getId().equals(me.getId()),
+                        byMessage.getOrDefault(msg.getId(), List.of())))
                 .toList();
+    }
+
+    /** Batched reaction tallies for a page of channel messages (one query). */
+    private Map<Long, List<ReactionView>> reactionsFor(List<ChannelMessage> page, Long meId) {
+        if (page.isEmpty()) return Map.of();
+        List<Long> ids = page.stream().map(ChannelMessage::getId).toList();
+        Map<Long, Map<String, long[]>> tallies = new HashMap<>();
+        Map<Long, java.util.Set<String>> mine = new HashMap<>();
+        for (Object[] row : channelReactions.findAllFor(ids)) {
+            Long messageId = (Long) row[0];
+            Long userId = (Long) row[1];
+            String emoji = (String) row[2];
+            tallies.computeIfAbsent(messageId, k -> new java.util.LinkedHashMap<>())
+                    .computeIfAbsent(emoji, k -> new long[1])[0]++;
+            if (meId != null && meId.equals(userId)) {
+                mine.computeIfAbsent(messageId, k -> new java.util.HashSet<>()).add(emoji);
+            }
+        }
+        Map<Long, List<ReactionView>> out = new HashMap<>();
+        for (Map.Entry<Long, Map<String, long[]>> e : tallies.entrySet()) {
+            java.util.Set<String> myEmojis = mine.getOrDefault(e.getKey(), java.util.Set.of());
+            out.put(e.getKey(), e.getValue().entrySet().stream()
+                    .map(en -> new ReactionView(en.getKey(), en.getValue()[0], myEmojis.contains(en.getKey())))
+                    .toList());
+        }
+        return out;
+    }
+
+    /** Loads a channel and enforces membership — the one access-control gate for messages. */
+    private Channel requireMemberChannel(User me, long channelId) {
+        Channel ch = channels.findById(channelId)
+                .orElseThrow(() -> ApiException.notFound("Channel not found"));
+        requireMember(requireCommunity(ch.getCommunityId()), me);
+        return ch;
+    }
+
+    /** Ephemeral typing notice relayed to the channel topic — never stored. */
+    @Transactional(readOnly = true)
+    public void typing(User me, long channelId) {
+        requireMemberChannel(me, channelId);
+        pusher.pushChannelTyping(channelId, me.getId(), me.getUsername());
+    }
+
+    /** Toggles one emoji from the caller on a channel message; returns the new tallies. */
+    @Transactional
+    public List<ReactionView> toggleReaction(User me, long channelMessageId, String rawEmoji) {
+        String emoji = rawEmoji == null ? "" : rawEmoji.strip();
+        if (emoji.isEmpty() || emoji.length() > 16) {
+            throw ApiException.badRequest("Pick a single emoji");
+        }
+        ChannelMessage msg = channelMessages.findById(channelMessageId)
+                .orElseThrow(() -> ApiException.notFound("Message not found"));
+        requireMemberChannel(me, msg.getChannel().getId());
+
+        channelReactions.findByChannelMessageIdAndUserIdAndEmoji(channelMessageId, me.getId(), emoji)
+                .ifPresentOrElse(
+                        channelReactions::delete,
+                        () -> {
+                            ChannelMessageReaction r = new ChannelMessageReaction();
+                            r.setChannelMessage(msg);
+                            r.setUser(me);
+                            r.setEmoji(emoji);
+                            channelReactions.save(r);
+                        });
+        return reactionsFor(List.of(msg), me.getId()).getOrDefault(channelMessageId, List.of());
     }
 
     @Transactional
@@ -258,6 +336,6 @@ public class CommunityService {
         msg.setContent(body);
         msg = channelMessages.save(msg);
         return new ChannelMessageView(msg.getId(), me.getId(), me.getUsername(), nameOf(me),
-                msg.getContent(), msg.getCreatedAt(), true);
+                msg.getContent(), msg.getCreatedAt(), true, List.of());
     }
 }

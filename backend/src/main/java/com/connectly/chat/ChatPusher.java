@@ -47,6 +47,13 @@ public class ChatPusher {
         }
     }
 
+    /** "Someone is typing" in a community channel — broadcast to that channel's topic. */
+    public record ChannelTypingPing(String type, Long channelId, Long userId, String username) {
+        public static ChannelTypingPing of(Long channelId, Long userId, String username) {
+            return new ChannelTypingPing("channel-typing", channelId, userId, username);
+        }
+    }
+
     public void pushNewMessage(Long recipientUserId, Long conversationId, Long messageId,
                                Long senderId, String senderUsername) {
         broker.convertAndSend("/topic/user/" + recipientUserId,
@@ -64,5 +71,15 @@ public class ChatPusher {
 
     public void pushReaction(Long recipientUserId, Long conversationId, Long messageId) {
         broker.convertAndSend("/topic/user/" + recipientUserId, ReactionPing.of(conversationId, messageId));
+    }
+
+    /**
+     * Channel typing ping. The topic is membership-gated at SUBSCRIBE time
+     * (see WebSocketConfig + ChannelAccessChecker), so only community members
+     * ever receive these.
+     */
+    public void pushChannelTyping(Long channelId, Long senderId, String senderUsername) {
+        broker.convertAndSend("/topic/channel/" + channelId,
+                ChannelTypingPing.of(channelId, senderId, senderUsername));
     }
 }

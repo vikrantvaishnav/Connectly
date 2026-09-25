@@ -25,9 +25,11 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     private final JwtService jwtService;
+    private final com.connectly.community.ChannelAccessChecker channelAccess;
 
-    public WebSocketConfig(JwtService jwtService) {
+    public WebSocketConfig(JwtService jwtService, com.connectly.community.ChannelAccessChecker channelAccess) {
         this.jwtService = jwtService;
+        this.channelAccess = channelAccess;
     }
 
     @Override
@@ -74,12 +76,37 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                     // Room membership is re-validated server-side when relaying.
                     boolean voiceTopic = dest.startsWith("/topic/voice/")
                             || dest.startsWith("/user/queue/voice/");
-                    if (!ownNotifications && !voiceTopic) {
+                    // Community channels carry member-only signals (typing), so the
+                    // subscriber must actually belong to the channel's community.
+                    boolean channelTopic = dest.startsWith("/topic/channel/");
+                    if (channelTopic && !channelAccess.isMemberOfChannel(
+                            parseUserId(principal.getName()), parseChannelId(dest))) {
+                        throw new IllegalArgumentException("Not a member of this channel");
+                    }
+                    if (!ownNotifications && !voiceTopic && !channelTopic) {
                         throw new IllegalArgumentException("Subscription not allowed");
                     }
                 }
                 return message;
             }
         });
+    }
+
+    private static Long parseUserId(String principalName) {
+        try {
+            return Long.valueOf(principalName);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /** "/topic/channel/42" → 42, or null when the destination is malformed. */
+    private static Long parseChannelId(String destination) {
+        String tail = destination.substring("/topic/channel/".length());
+        try {
+            return Long.valueOf(tail);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }
