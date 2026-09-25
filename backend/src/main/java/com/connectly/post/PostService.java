@@ -156,7 +156,9 @@ public class PostService {
         // in the first place, but a stale follow from before a block is filtered too.
         Set<Long> hidden = hiddenAuthorsFor(viewer.getId());
         List<Long> authorIds = new java.util.ArrayList<>(
-                follows.findByFollowerId(viewer.getId()).stream().map(f -> f.getFollowee().getId())
+                follows.findByFollowerId(viewer.getId()).stream()
+                        .filter(f -> f.getStatus() == com.connectly.social.Follow.Status.ACTIVE)
+                        .map(f -> f.getFollowee().getId())
                         .filter(id -> !hidden.contains(id)).toList());
         authorIds.add(viewer.getId()); // home feed includes your own posts
         Page<Post> result = posts.feedFor(authorIds, PageRequest.of(page, Math.min(size, 50)));
@@ -167,13 +169,32 @@ public class PostService {
     public PostDtos.PostPage explore(User viewer, int page, int size) {
         Page<Post> result = posts.findByVisibilityOrderByCreatedAtDesc(Post.Visibility.PUBLIC,
                 PageRequest.of(page, Math.min(size, 50)));
-        // Blocked/muted authors never surface in Explore.
+        // Blocked/muted authors never surface in Explore; private accounts'
+        // posts only surface to their approved followers (and themselves).
         Set<Long> hidden = hiddenAuthorsFor(viewer == null ? 0 : viewer.getId());
-        List<Post> visible = viewer == null ? result.getContent()
-                : result.getContent().stream()
-                        .filter(p -> !hidden.contains(p.getAuthor().getId()))
-                        .toList();
+        Set<Long> locked = lockedAuthorIds(viewer);
+        List<Post> visible = result.getContent().stream()
+                .filter(p -> !hidden.contains(p.getAuthor().getId()))
+                .filter(p -> !locked.contains(p.getAuthor().getId()))
+                .toList();
         return new PostDtos.PostPage(mapPosts(visible, viewer), result.getNumber(), result.getSize(), result.hasNext());
+    }
+
+    /**
+     * Authors whose private posts this viewer may not see (their account is
+     * private and the viewer is not an approved follower or connected).
+     * Cached per call — one follows query, not one per post.
+     */
+    private Set<Long> lockedAuthorIds(User viewer) {
+        if (viewer == null) return new java.util.HashSet<>(users.findPrivateUserIds());
+        Set<Long> approved = follows.findByFollowerIdAndStatus(viewer.getId(), com.connectly.social.Follow.Status.ACTIVE)
+                .stream().map(f -> f.getFollowee().getId()).collect(java.util.stream.Collectors.toSet());
+        Set<Long> connectedIds = new java.util.HashSet<>(connections.findConnectedIds(viewer.getId()));
+        return users.findPrivateUserIds().stream()
+                .filter(id -> !id.equals(viewer.getId()))
+                .filter(id -> !approved.contains(id))
+                .filter(id -> !connectedIds.contains(id))
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     /** Authors whose content the viewer must not see (mutes + any-direction blocks). */

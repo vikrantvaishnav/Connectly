@@ -49,6 +49,8 @@ server:
   compression:
     enabled: true
     mime-types: application/json,text/plain,text/html
+    # Already-compressed media must NOT be gzipped again (wasted CPU).
+    excluded-user-agents:
     min-response-size: 2048
 
 management:

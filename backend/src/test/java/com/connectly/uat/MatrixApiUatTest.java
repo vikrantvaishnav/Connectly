@@ -228,9 +228,9 @@ class MatrixApiUatTest {
         String atlasToken = login(atlas);
         String ravenToken = login(raven);
 
-        // follow: valid then duplicate (idempotent)
-        assertThat(postStatus("/api/v1/users/" + ravenId + "/follow", Map.of(), atlasToken)).isEqualTo(204);
-        assertThat(postStatus("/api/v1/users/" + ravenId + "/follow", Map.of(), atlasToken)).isEqualTo(204);
+        // follow: valid then duplicate → 409 (no silent idempotency: request vs active matters)
+        assertThat(postStatus("/api/v1/users/" + ravenId + "/follow", Map.of(), atlasToken)).isEqualTo(200);
+        assertThat(postStatus("/api/v1/users/" + ravenId + "/follow", Map.of(), atlasToken)).isEqualTo(409);
         // self-follow refused
         assertThat(postStatus("/api/v1/users/" + atlasId + "/follow", Map.of(), atlasToken)).isEqualTo(400);
         // unfollow valid

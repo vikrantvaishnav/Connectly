@@ -39,6 +39,10 @@ public class User {
     @Column(name = "email_verified", nullable = false)
     private boolean emailVerified = false;
 
+    /** Private account: follows become requests; profile/posts/DMs gate on approval. */
+    @Column(name = "account_private", nullable = false)
+    private boolean accountPrivate = false;
+
     @Column(name = "totp_secret")
     private String totpSecret;
 
@@ -110,9 +114,21 @@ public class User {
     public String getPasswordHash() { return passwordHash; }
     public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
     public Role getRole() { return role; }
-    public void setRole(Role role) { this.role = role; }
-    public boolean isEmailVerified() { return emailVerified; }
-    public void setEmailVerified(boolean emailVerified) { this.emailVerified = emailVerified; }
+    public void setRole(Role role) { this.role = role; }    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void setEmailVerified(boolean emailVerified) {
+        this.emailVerified = emailVerified;
+    }
+
+    public boolean isAccountPrivate() {
+        return accountPrivate;
+    }
+
+    public void setAccountPrivate(boolean accountPrivate) {
+        this.accountPrivate = accountPrivate;
+    }
     public String getTotpSecret() { return totpSecret; }
     public void setTotpSecret(String totpSecret) { this.totpSecret = totpSecret; }
     public boolean isTotpEnabled() { return totpEnabled; }

@@ -61,7 +61,11 @@ public class MediaController {
                 default -> MediaType.APPLICATION_OCTET_STREAM;
             };
             Resource res = new org.springframework.core.io.FileSystemResource(file);
-            return ResponseEntity.ok().contentType(mt).body(res);
+            // Media filenames are unique per upload and never change — cache
+            // hard for a month (halves page weight on repeat visits).
+            return ResponseEntity.ok().contentType(mt)
+                    .header("Cache-Control", "public, max-age=2592000, immutable")
+                    .body(res);
         } catch (Exception e) {
             return ResponseEntity.notFound().build();
         }

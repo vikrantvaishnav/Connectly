@@ -15,9 +15,16 @@ public interface FollowRepository extends JpaRepository<Follow, Long> {
 
     boolean existsByFollowerIdAndFolloweeId(Long followerId, Long followeeId);
 
-    long countByFollowerId(Long followerId);
+    /** Follow requests waiting on this account's approval (for the requests UI). */
+    List<Follow> findByFolloweeIdAndStatusOrderByCreatedAtDesc(Long followeeId, Follow.Status status);
 
-    long countByFolloweeId(Long followeeId);
+    /** All requests I have sent that are still pending. */
+    List<Follow> findByFollowerIdAndStatus(Long followerId, Follow.Status status);
+
+    /** ACTIVE follows only — pending requests never count as followers/following. */
+    long countByFollowerIdAndStatus(Long followerId, Follow.Status status);
+
+    long countByFolloweeIdAndStatus(Long followeeId, Follow.Status status);
 
     /**
      * Of {@code ids}, which users follow {@code followeeId}? (batched "follows you" badge)

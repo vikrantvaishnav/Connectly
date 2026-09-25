@@ -55,6 +55,28 @@ export function RequestsPage() {
     enabled: !!me,
   })
 
+  // Follow requests on my private account (Instagram-style).
+  const followReqs = useQuery({
+    queryKey: ['follow-requests'],
+    queryFn: async () =>
+      (await api.get<{ id: number; userId: number; username: string; firstName: string | null; lastName: string | null; image: string | null }[]>('/follow-requests')).data,
+    enabled: !!me,
+  })
+
+  const acceptFollow = useMutation({
+    mutationFn: (id: number) => api.post(`/follow-requests/${id}/accept`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['follow-requests'] })
+      pushToast('Follower approved ✓', '✅')
+    },
+    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
+  })
+  const declineFollow = useMutation({
+    mutationFn: (id: number) => api.delete(`/follow-requests/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['follow-requests'] }),
+    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
+  })
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ['connections'] })
     queryClient.invalidateQueries({ queryKey: ['connections-summary'] })
@@ -102,6 +124,40 @@ export function RequestsPage() {
         <h1 className="text-2xl font-bold">Requests & Matches 💘</h1>
         <p className="text-sm text-[var(--muted)]">Mutual connections only — nobody gets a chat they didn't accept.</p>
       </div>
+
+      {followReqs.data && followReqs.data.length > 0 && (
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">
+            Follow requests · {followReqs.data.length}
+          </h2>
+          <div className="space-y-3">
+            {followReqs.data.map((r) => (
+              <div key={r.id} className="flex items-center gap-3">
+                <Link to={`/profile/${r.username}`}>
+                  <Avatar name={[r.firstName, r.lastName].filter(Boolean).join(' ') || r.username} id={String(r.userId)} size="md" src={r.image} />
+                </Link>
+                <Link to={`/profile/${r.username}`} className="min-w-0 flex-1 truncate font-medium hover:underline">
+                  {[r.firstName, r.lastName].filter(Boolean).join(' ') || r.username}
+                </Link>
+                <button
+                  onClick={() => acceptFollow.mutate(r.id)}
+                  disabled={acceptFollow.isPending}
+                  className="rounded-xl bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-hover)]"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => declineFollow.mutate(r.id)}
+                  disabled={declineFollow.isPending}
+                  className="rounded-xl bg-[var(--surface-2)] px-3 py-1.5 text-xs font-medium text-[var(--muted)] hover:bg-rose-500/10"
+                >
+                  Delete
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="flex gap-2">
         {tabs.map((t) => (

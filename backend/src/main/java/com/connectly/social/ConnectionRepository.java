@@ -19,6 +19,12 @@ public interface ConnectionRepository extends JpaRepository<Connection, Long> {
             """)
     Optional<Connection> findBetween(@Param("a") Long a, @Param("b") Long b);
 
+    /** Ids of users with an ACCEPTED connection to {@code userId} (both directions). */
+    @Query("select distinct case when c.sender.id = :userId then c.receiver.id else c.sender.id end " +
+           "from Connection c where (c.sender.id = :userId or c.receiver.id = :userId) " +
+           "and c.status = com.connectly.social.Connection$Status.ACCEPTED")
+    java.util.List<Long> findConnectedIds(@Param("userId") Long userId);
+
     List<Connection> findByReceiverIdAndStatusOrderByCreatedAtDesc(Long receiverId, Connection.Status status);
 
     List<Connection> findBySenderIdAndStatusOrderByCreatedAtDesc(Long senderId, Connection.Status status);

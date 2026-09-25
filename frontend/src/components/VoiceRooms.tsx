@@ -154,6 +154,8 @@ export function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => 
   const [peers, setPeers] = useState<ParticipantView[]>([])
   const [muted, setMuted] = useState(false)
   const [micError, setMicError] = useState<string | null>(null)
+  const [micReady, setMicReady] = useState(false)
+  const joinedRef = useRef(false)
   const localStreamRef = useRef<MediaStream | null>(null)
   const pcs = useRef<Map<number, RTCPeerConnection>>(new Map())
   const audioEls = useRef<Map<number, HTMLAudioElement>>(new Map())
@@ -185,8 +187,18 @@ export function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => 
     void api.post(`/voice/rooms/${roomId}/leave`).catch(() => {})
   }
 
+  // Join only after the mic is resolved — a PeerConnection created before the
+  // local stream exists transmits silence, so nobody would hear you.
   useEffect(() => {
-    join.mutate()
+    if ((micReady || micError) && !joinedRef.current) {
+      joinedRef.current = true
+      join.mutate()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, micReady, micError])
+
+  // Teardown on unmount / room change only (never when mic state flips).
+  useEffect(() => {
     return () => { leaveClean() }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId])
@@ -199,9 +211,18 @@ export function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => 
         if (cancelled) { stream.getTracks().forEach(t => t.stop()); return }
         localStreamRef.current = stream
         stream.getAudioTracks().forEach(t => { t.enabled = !muted })
+        setMicReady(true)
+        // If a PeerConnection was created while the mic was still starting
+        // (listen-only race), attach the tracks now so you can be heard.
+        pcs.current.forEach(pc => {
+          stream.getTracks().forEach(t => {
+            try { pc.addTrack(t, stream) } catch { /* already attached */ }
+          })
+        })
       })
       .catch(() => setMicError('Microphone access denied — you can listen but not speak.'))
     return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -231,10 +252,27 @@ export function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => 
       if (!el) {
         el = document.createElement('audio')
         el.autoplay = true
+        el.setAttribute('playsinline', '')
         audioEls.current.set(peerId, el)
         document.body.appendChild(el)
       }
       el.srcObject = e.streams[0]
+      // Autoplay policies: play() normally succeeds because joining was a user
+      // gesture — but if the browser still blocks it, the next click resumes.
+      el.play().catch(() => {
+        const resume = () => {
+          el!.play().catch(() => {})
+          document.removeEventListener('click', resume)
+        }
+        document.addEventListener('click', resume)
+      })
+    }
+    // If the connection dies (network switch, blocked TURN path), ask the
+    // peers to renegotiate instead of staying silent forever.
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === 'failed') {
+        try { pc.restartIce() } catch { /* best effort */ }
+      }
     }
     return pc
   }
@@ -255,6 +293,10 @@ export function VoiceRoom({ roomId, onLeave }: { roomId: number; onLeave: () => 
         pendingIce.current.delete(peerId)
       } else if (d.kind === 'answer' && d.sdp) {
         if (pc.signalingState !== 'stable') await pc.setRemoteDescription(d.sdp)
+        // ICE candidates that arrived while we waited for this answer must be
+        // flushed now — dropping them is THE classic "can't hear the peer" bug.
+        for (const c of pendingIce.current.get(peerId) ?? []) await pc.addIceCandidate(c)
+        pendingIce.current.delete(peerId)
       } else if (d.kind === 'ice' && d.candidate) {
         if (pc.remoteDescription) await pc.addIceCandidate(d.candidate)
         else pendingIce.current.set(peerId, [...(pendingIce.current.get(peerId) ?? []), d.candidate])

@@ -40,7 +40,7 @@ public class UserController {
             long id, String username, String firstName, String lastName, String bio, String profession,
             String profileImage, String interests, String lookingFor, Integer age,
             long postCount, long followerCount, long followingCount,
-            boolean following, boolean connectedWithMe) {}
+            boolean following, boolean connectedWithMe, boolean followRequested, boolean accountPrivate) {}
 
     /** ISO date (yyyy-MM-dd) or null. Age is derived — never stored. */
     public record UpdateProfileRequest(
@@ -65,12 +65,30 @@ public class UserController {
     public ProfileDto profile(@AuthenticationPrincipal User viewer,
                               @PathVariable String username) {
         User user = users.findByUsernameIgnoreCase(username).orElseThrow(() -> ApiException.notFound("User not found"));
-        UserProfile p = profiles.findByUserId(user.getId()).orElse(null);
-        boolean following = viewer != null
-                && follows.existsByFollowerIdAndFolloweeId(viewer.getId(), user.getId());
+        boolean self = viewer != null && viewer.getId().equals(user.getId());
+        boolean following = viewer != null && follows.findByFollowerIdAndFolloweeId(viewer.getId(), user.getId())
+                .map(f -> f.getStatus() == com.connectly.social.Follow.Status.ACTIVE).orElse(false);
+        boolean pending = viewer != null && follows.findByFollowerIdAndFolloweeId(viewer.getId(), user.getId())
+                .map(f -> f.getStatus() == com.connectly.social.Follow.Status.PENDING).orElse(false);
         boolean connected = viewer != null
                 && connections.findBetween(viewer.getId(), user.getId())
                         .map(c -> c.getStatus() == Status.ACCEPTED).orElse(false);
+        UserProfile p = profiles.findByUserId(user.getId()).orElse(null);
+
+        // Private accounts reveal nothing to strangers — only username + the
+        // actions a stranger may take. Self, approved followers and connections
+        // see everything.
+        boolean gated = user.isAccountPrivate() && !self && !following && !connected;
+        if (gated) {
+            return new ProfileDto(
+                    user.getId(), user.getUsername(), null, null, null, null,
+                    null, null, null, null,
+                    0L,
+                    follows.countByFolloweeIdAndStatus(user.getId(), com.connectly.social.Follow.Status.ACTIVE),
+                    follows.countByFollowerIdAndStatus(user.getId(), com.connectly.social.Follow.Status.ACTIVE),
+                    following, connected, pending, user.isAccountPrivate());
+        }
+
         return new ProfileDto(
                 user.getId(), user.getUsername(),
                 p != null ? p.getFirstName() : null, p != null ? p.getLastName() : null,
@@ -80,9 +98,20 @@ public class UserController {
                 p != null ? p.getLookingFor() : null,
                 p != null ? ageOf(p.getDateOfBirth()) : null,
                 posts.countByAuthorId(user.getId()),
-                follows.countByFolloweeId(user.getId()),
-                follows.countByFollowerId(user.getId()),
-                following, connected);
+                follows.countByFolloweeIdAndStatus(user.getId(), com.connectly.social.Follow.Status.ACTIVE),
+                follows.countByFollowerIdAndStatus(user.getId(), com.connectly.social.Follow.Status.ACTIVE),
+                following, connected, pending, user.isAccountPrivate());
+    }
+
+    /** Toggle the Instagram-style private-account mode on my account. */
+    @PutMapping("/me/privacy")
+    @Transactional
+    public java.util.Map<String, Object> setPrivacy(@AuthenticationPrincipal User me,
+            @RequestBody java.util.Map<String, Boolean> body) {
+        boolean requested = Boolean.TRUE.equals(body.get("accountPrivate"));
+        me.setAccountPrivate(requested);
+        users.save(me);
+        return java.util.Map.of("accountPrivate", requested);
     }
 
     @PutMapping("/me")

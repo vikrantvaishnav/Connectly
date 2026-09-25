@@ -30,11 +30,15 @@ public class ChatService {
     private final UserProfileRepository profiles;
     private final ChatPusher pusher;
     private final com.connectly.social.SafetyService safety;
+    private final com.connectly.social.FollowRepository follows;
+    private final com.connectly.social.ConnectionRepository connections;
 
     public ChatService(ConversationRepository conversations, MessageRepository messages,
                        ConversationStateRepository states, MessageReactionRepository reactions,
                        UserRepository users, UserProfileRepository profiles, ChatPusher pusher,
-                       com.connectly.social.SafetyService safety) {
+                       com.connectly.social.SafetyService safety,
+                       com.connectly.social.FollowRepository follows,
+                       com.connectly.social.ConnectionRepository connections) {
         this.conversations = conversations;
         this.messages = messages;
         this.states = states;
@@ -43,6 +47,25 @@ public class ChatService {
         this.profiles = profiles;
         this.pusher = pusher;
         this.safety = safety;
+        this.follows = follows;
+        this.connections = connections;
+    }
+
+    /**
+     * Private accounts only accept DMs from approved followers or connections
+     * (Instagram-style). Strangers get a clear 403.
+     */
+    private void requireCanMessage(User me, long otherUserId) {
+        User other = users.findById(otherUserId).orElse(null);
+        if (other == null || !other.isAccountPrivate()) return;
+        var follow = follows.findByFollowerIdAndFolloweeId(me.getId(), otherUserId);
+        boolean follower = follow.isPresent() && follow.get().getStatus() == com.connectly.social.Follow.Status.ACTIVE;
+        boolean connected = connections.findConnectedIds(me.getId()).contains(otherUserId);
+        if (!follower && !connected) {
+            throw new com.connectly.common.error.ApiException(
+                    org.springframework.http.HttpStatus.FORBIDDEN, "DMS_PRIVATE",
+                    "This account is private — you can message them after they approve your follow request.");
+        }
     }
 
     // ---- inbox ------------------------------------------------------------
@@ -115,6 +138,7 @@ public class ChatService {
         }
         // Blocked pairs cannot open new conversations (and blocks delete old ones).
         safety.requireNotBlocked(me.getId(), otherUserId);
+        requireCanMessage(me, otherUserId);
 
         long a = Math.min(me.getId(), otherUserId);
         long b = Math.max(me.getId(), otherUserId);

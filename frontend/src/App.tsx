@@ -1,29 +1,41 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuthStore } from './store/authStore'
 import { AppLayout } from './layouts/AppLayout'
-import { VoiceRoomsPanel } from './components/VoiceRooms'
-import { HomePage } from './pages/HomePage'
-import { ExplorePage } from './pages/ExplorePage'
-import { NearbyPage } from './pages/NearbyPage'
-import { DiscoverPage } from './pages/DiscoverPage'
-import { RequestsPage } from './pages/RequestsPage'
-import { MessagesPage } from './pages/MessagesPage'
-import { CommunitiesPage } from './pages/CommunitiesPage'
-import { CommunityDetailPage } from './pages/CommunityDetailPage'
-import { NotificationsPage } from './pages/NotificationsPage'
-import { ProfilePage } from './pages/ProfilePage'
-import { SettingsPage } from './pages/SettingsPage'
-import { PostDetailPage } from './pages/PostDetailPage'
-import { LoginPage } from './pages/auth/LoginPage'
-import { RegisterPage } from './pages/auth/RegisterPage'
-import { VerifyEmailPage } from './pages/auth/VerifyEmailPage'
-import { ForgotPasswordPage } from './pages/auth/ForgotPasswordPage'
-import { ResetPasswordPage } from './pages/auth/ResetPasswordPage'
-import { OAuthCallbackPage } from './pages/auth/OAuthCallbackPage'
-import { SecuritySettingsPage } from './pages/SecuritySettingsPage'
 import { Toaster } from './components/Toaster'
+
+// Route-level code splitting: each page ships in its own chunk, so the first
+// paint only downloads what the visitor's route needs (the initial bundle was
+// 525 kB — most of it code for pages a user may never open).
+const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })))
+const ExplorePage = lazy(() => import('./pages/ExplorePage').then(m => ({ default: m.ExplorePage })))
+const DiscoverPage = lazy(() => import('./pages/DiscoverPage').then(m => ({ default: m.DiscoverPage })))
+const NearbyPage = lazy(() => import('./pages/NearbyPage').then(m => ({ default: m.NearbyPage })))
+const RequestsPage = lazy(() => import('./pages/RequestsPage').then(m => ({ default: m.RequestsPage })))
+const MessagesPage = lazy(() => import('./pages/MessagesPage').then(m => ({ default: m.MessagesPage })))
+const CommunitiesPage = lazy(() => import('./pages/CommunitiesPage').then(m => ({ default: m.CommunitiesPage })))
+const CommunityDetailPage = lazy(() => import('./pages/CommunityDetailPage').then(m => ({ default: m.CommunityDetailPage })))
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then(m => ({ default: m.NotificationsPage })))
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })))
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })))
+const SecuritySettingsPage = lazy(() => import('./pages/SecuritySettingsPage').then(m => ({ default: m.SecuritySettingsPage })))
+const PostDetailPage = lazy(() => import('./pages/PostDetailPage').then(m => ({ default: m.PostDetailPage })))
+const VoiceRoomsPanel = lazy(() => import('./components/VoiceRooms').then(m => ({ default: m.VoiceRoomsPanel })))
+const LoginPage = lazy(() => import('./pages/auth/LoginPage').then(m => ({ default: m.LoginPage })))
+const RegisterPage = lazy(() => import('./pages/auth/RegisterPage').then(m => ({ default: m.RegisterPage })))
+const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })))
+const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })))
+const VerifyEmailPage = lazy(() => import('./pages/auth/VerifyEmailPage').then(m => ({ default: m.VerifyEmailPage })))
+const OAuthCallbackPage = lazy(() => import('./pages/auth/OAuthCallbackPage').then(m => ({ default: m.OAuthCallbackPage })))
+
+function RouteFallback() {
+  return (
+    <div className="flex min-h-[50vh] items-center justify-center text-sm text-[var(--muted)]">
+      Loading…
+    </div>
+  )
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,6 +59,7 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         {/* Auth routes (no sidebar layout) */}
         <Route path="/login" element={<LoginPage />} />
@@ -83,6 +96,7 @@ export default function App() {
         {/* Catch-all */}
         <Route path="*" element={<Navigate to="/home" replace />} />
       </Routes>
+      </Suspense>
       <Toaster />
     </QueryClientProvider>
   )

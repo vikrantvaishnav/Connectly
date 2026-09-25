@@ -25,8 +25,27 @@ public class SocialController {
     }
 
     @PostMapping("/users/{userId}/follow")
-    public ResponseEntity<Void> follow(@AuthenticationPrincipal User user, @PathVariable long userId) {
-        social.follow(user, userId);
+    public java.util.Map<String, String> follow(@AuthenticationPrincipal User user, @PathVariable long userId) {
+        // "ACTIVE" = following; "PENDING" = request sent to a private account.
+        return java.util.Map.of("status", social.follow(user, userId));
+    }
+
+    /** Follow requests waiting on my approval (private accounts). */
+    @GetMapping("/follow-requests")
+    public List<SocialService.FollowRequestDto> followRequests(@AuthenticationPrincipal User user) {
+        return social.followRequests(user);
+    }
+
+    @PostMapping("/follow-requests/{id}/accept")
+    public ResponseEntity<Void> acceptFollowRequest(@AuthenticationPrincipal User user, @PathVariable long id) {
+        social.acceptFollowRequest(user, id);
+        return ResponseEntity.noContent().build();
+    }
+
+    /** Decline a request sent to me, or cancel one I sent. */
+    @DeleteMapping("/follow-requests/{id}")
+    public ResponseEntity<Void> removeFollowRequest(@AuthenticationPrincipal User user, @PathVariable long id) {
+        social.removeFollowRequest(user, id);
         return ResponseEntity.noContent().build();
     }
 

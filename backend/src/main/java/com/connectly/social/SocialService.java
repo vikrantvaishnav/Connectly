@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 
 @Service
 public class SocialService {
@@ -34,19 +35,75 @@ public class SocialService {
     // ---------- follows ----------
 
     @Transactional
-    public void follow(User actor, long followeeId) {
+    public String follow(User actor, long followeeId) {
         if (actor.getId().equals(followeeId)) {
             throw ApiException.badRequest("You cannot follow yourself");
         }
         // A block in either direction hides both accounts from each other.
         safety.requireNotBlocked(actor.getId(), followeeId);
         User followee = users.findById(followeeId).orElseThrow(() -> ApiException.notFound("User not found"));
-        if (follows.existsByFollowerIdAndFolloweeId(actor.getId(), followeeId)) return;
+        var existing = follows.findByFollowerIdAndFolloweeId(actor.getId(), followeeId);
+        if (existing.isPresent()) {
+            throw ApiException.conflict(existing.get().getStatus() == Follow.Status.PENDING
+                    ? "Follow request already pending"
+                    : "Already following");
+        }
         Follow f = new Follow();
         f.setFollower(actor);
         f.setFollowee(followee);
+        if (followee.isAccountPrivate()) {
+            // Private account: the follow becomes a request the owner approves.
+            f.setStatus(Follow.Status.PENDING);
+            follows.save(f);
+            notifier.notify(followee, actor,
+                    com.connectly.notification.NotificationService.FOLLOW_REQUEST, "user", followeeId);
+            return "PENDING";
+        }
+        f.setStatus(Follow.Status.ACTIVE);
         follows.save(f);
         notifier.notify(followee, actor, com.connectly.notification.NotificationService.FOLLOW, "user", followeeId);
+        return "ACTIVE";
+    }
+
+    /** Instagram-style request card for the requests UI. */
+    public record FollowRequestDto(long id, long userId, String username,
+                                   String firstName, String lastName, String image) {}
+
+    /** Follow requests waiting on this account's approval. */
+    @Transactional(readOnly = true)
+    public List<FollowRequestDto> followRequests(User me) {
+        return follows.findByFolloweeIdAndStatusOrderByCreatedAtDesc(me.getId(), Follow.Status.PENDING).stream()
+                .map(f -> {
+                    com.connectly.user.UserProfile p = profiles.findByUserId(f.getFollower().getId()).orElse(null);
+                    return new FollowRequestDto(f.getId(), f.getFollower().getId(), f.getFollower().getUsername(),
+                            p != null ? p.getFirstName() : null, p != null ? p.getLastName() : null,
+                            p != null ? p.getProfileImage() : null);
+                })
+                .toList();
+    }
+
+    /** Approve a pending follow request on my (private) account. */
+    @Transactional
+    public void acceptFollowRequest(User me, long requestId) {
+        Follow f = follows.findById(requestId).orElseThrow(() -> ApiException.notFound("Request not found"));
+        if (!f.getFollowee().getId().equals(me.getId()) || f.getStatus() != Follow.Status.PENDING) {
+            throw ApiException.notFound("Request not found");
+        }
+        f.setStatus(Follow.Status.ACTIVE);
+        follows.save(f);
+        notifier.notify(f.getFollower(), me,
+                com.connectly.notification.NotificationService.FOLLOW_ACCEPTED, "user", me.getId());
+    }
+
+    /** Decline a request sent to me, or cancel one I sent. Pending only. */
+    @Transactional
+    public void removeFollowRequest(User me, long requestId) {
+        Follow f = follows.findById(requestId).orElseThrow(() -> ApiException.notFound("Request not found"));
+        boolean involved = f.getFollowee().getId().equals(me.getId()) || f.getFollower().getId().equals(me.getId());
+        if (!involved || f.getStatus() != Follow.Status.PENDING) {
+            throw ApiException.notFound("Request not found");
+        }
+        follows.delete(f);
     }
 
     @Transactional

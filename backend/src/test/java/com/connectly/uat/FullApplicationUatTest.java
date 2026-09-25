@@ -298,7 +298,7 @@ class FullApplicationUatTest {
 
         // raven follows atlas → now visible
         var follow = post("/api/v1/users/" + atlasId + "/follow", Map.of(), ravenAccess);
-        assertThat(follow.getStatusCode().value()).isEqualTo(204);
+        assertThat(follow.getStatusCode().value()).isEqualTo(200); // {status:"ACTIVE"}
         assertThat(get("/api/v1/posts/" + fid, ravenAccess).getStatusCode().value()).isEqualTo(200);
     }
 
@@ -350,7 +350,7 @@ class FullApplicationUatTest {
     @Test @Order(35)
     void feed_contains_own_posts_and_followed_authors() {
         // atlas follows raven → raven's private post must NOT be in atlas feed
-        assertThat(post("/api/v1/users/" + ravenId + "/follow", Map.of(), atlasAccess).getStatusCode().value()).isEqualTo(204);
+        assertThat(post("/api/v1/users/" + ravenId + "/follow", Map.of(), atlasAccess).getStatusCode().value()).isEqualTo(200);
         var feed = postPage("/api/v1/posts/feed?page=0&size=50", atlasAccess);
         List<Map<String, Object>> posts = (List<Map<String, Object>>) feed.get("posts");
         assertThat(posts).extracting(p -> ((Number) p.get("id")).longValue()).contains(atlasPostId);

@@ -167,8 +167,8 @@ class SocialFlowIntegrationTest {
 
         // --- follow unlocks FOLLOWERS posts and feeds them into Bob's home feed ---
         assertThat(rest.post().uri("/api/v1/users/" + aliceId + "/follow")
-                .headers(h -> h.setBearerAuth(bobToken)).retrieve().toBodilessEntity()
-                .getStatusCode().value()).isEqualTo(204);
+                .headers(h -> h.setBearerAuth(bobToken)).retrieve().toEntity(String.class)
+                .getStatusCode().value()).isEqualTo(200); // {status:"ACTIVE"}
         assertThat(rest.get().uri("/api/v1/posts/" + followersPostId)
                 .headers(h -> h.setBearerAuth(bobToken)).retrieve().toEntity(PostDtos.PostDto.class)
                 .getStatusCode().value()).isEqualTo(200);

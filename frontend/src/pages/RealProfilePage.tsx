@@ -22,6 +22,8 @@ interface RealProfile {
   followingCount: number
   following: boolean
   connectedWithMe: boolean
+  followRequested?: boolean
+  accountPrivate?: boolean
 }
 
 function displayNameOf(p: RealProfile): string {
@@ -51,10 +53,10 @@ export function RealProfilePage({ own }: { own?: boolean }) {
   })
 
   const follow = useMutation({
-    mutationFn: () => api.post(`/users/${profile.data?.id}/follow`),
-    onSuccess: () => {
+    mutationFn: () => api.post<{ status: string }>(`/users/${profile.data?.id}/follow`),
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ['real-profile', effectiveUsername] })
-      pushToast('Following ✓', '✅')
+      pushToast(res.data.status === 'PENDING' ? 'Follow request sent 📨' : 'Following ✓', '✅')
     },
     onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
   })
@@ -170,13 +172,21 @@ export function RealProfilePage({ own }: { own?: boolean }) {
                   >
                     Following ✓
                   </button>
+                ) : p.followRequested ? (
+                  <button
+                    onClick={() => unfollow.mutate()}
+                    disabled={unfollow.isPending}
+                    className="rounded-xl bg-[var(--surface-2)] px-4 py-2 text-sm font-medium text-[var(--muted)] transition-all hover:bg-rose-500/10"
+                  >
+                    Requested · Cancel
+                  </button>
                 ) : (
                   <button
                     onClick={() => follow.mutate()}
                     disabled={follow.isPending}
                     className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white transition-all hover:bg-[var(--accent-hover)]"
                   >
-                    Follow
+                    {p.accountPrivate ? 'Request to follow' : 'Follow'}
                   </button>
                 )}
                 <button

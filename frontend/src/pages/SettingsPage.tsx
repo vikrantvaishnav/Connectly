@@ -125,7 +125,7 @@ export function SettingsPage() {
               hint="Let people near you see you in Nearby — backed by your live account"
             />
             <Toggle on label="Approximate distance only" onChange={() => {}} hint="Nearby never shows exact coordinates — enforced server-side" />
-            <Toggle on={false} onChange={() => pushToast('Private accounts arrive soon 🔒')} label="Private account" hint="Approve followers manually" />
+            <PrivateAccountToggle />
           </>
         ) : (
           <p className="py-3 text-sm text-[var(--muted)]">Sign in to manage who can discover you.</p>
@@ -136,6 +136,34 @@ export function SettingsPage() {
 
       {authUser && <DangerZone />}
     </div>
+  )
+}
+
+/** Private-account mode: follows become requests you approve. */
+function PrivateAccountToggle() {
+  const pushToast = useAppStore((s) => s.pushToast)
+  const queryClient = useQueryClient()
+  const state = useQuery({
+    queryKey: ['me-profile'],
+    queryFn: async () => (await api.get<{ accountPrivate: boolean }>('/users/me')).data,
+  })
+  const setPrivate = useMutation({
+    mutationFn: (on: boolean) => api.put<{ accountPrivate: boolean }>('/users/me/privacy', { accountPrivate: on }),
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['me-profile'] })
+      pushToast(res.data.accountPrivate
+        ? 'Your account is private — new followers need your approval'
+        : 'Your account is public', '🛡️')
+    },
+    onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
+  })
+  return (
+    <Toggle
+      on={state.data?.accountPrivate ?? false}
+      onChange={() => setPrivate.mutate(!(state.data?.accountPrivate ?? false))}
+      label="Private account"
+      hint="Approve followers manually; strangers see only your username and follower count"
+    />
   )
 }
 

@@ -18,6 +18,8 @@ public class NotificationService {
     public static final String LIKE = "LIKE";
     public static final String COMMENT = "COMMENT";
     public static final String FOLLOW = "FOLLOW";
+    public static final String FOLLOW_REQUEST = "FOLLOW_REQUEST";
+    public static final String FOLLOW_ACCEPTED = "FOLLOW_ACCEPTED";
     public static final String CONNECTION_REQUEST = "CONNECTION_REQUEST";
     public static final String CONNECTION_ACCEPTED = "CONNECTION_ACCEPTED";
     public static final String MESSAGE = "MESSAGE";
