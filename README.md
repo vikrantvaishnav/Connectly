@@ -115,3 +115,4 @@ All routes are `/api/v1`; everything requires a bearer token unless noted.
 - Errors: `{ timestamp, status, error, message, path }` — no stack traces
 - Secrets come from environment variables only; nothing is hard-coded
 - Schema changes go through Flyway migrations (`backend/src/main/resources/db/migration`)
+
