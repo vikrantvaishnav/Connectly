@@ -109,7 +109,7 @@ public class PostController {
                                               @RequestParam(defaultValue = "5") int userLimit,
                                               @RequestParam(defaultValue = "10") int postLimit) {
         return new SearchService.SearchResults(
-                searchService.searchUsers(q, userLimit),
+                searchService.searchUsers(q, user == null ? null : String.valueOf(user.getId()), userLimit),
                 searchService.searchPosts(user, q, postLimit));
     }
 

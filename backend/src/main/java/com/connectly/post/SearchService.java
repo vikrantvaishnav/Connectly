@@ -27,23 +27,31 @@ public class SearchService {
     private final PostLikeRepository likes;
     private final SavedPostRepository saved;
     private final PostService postService;
+    private final com.connectly.social.SafetyService safety;
 
     public SearchService(UserRepository users, UserProfileRepository profiles, PostRepository posts,
-                         PostLikeRepository likes, SavedPostRepository saved, PostService postService) {
+                         PostLikeRepository likes, SavedPostRepository saved, PostService postService,
+                         com.connectly.social.SafetyService safety) {
         this.users = users;
         this.profiles = profiles;
         this.posts = posts;
         this.likes = likes;
         this.saved = saved;
         this.postService = postService;
+        this.safety = safety;
     }
 
-    /** Users by username or profile name. Case-insensitive, prefix-friendly. */
+    /** Users by username or profile name — hiding blocked (either direction) and muted users. */
     @Transactional(readOnly = true)
-    public List<UserHit> searchUsers(String q, int limit) {
+    public List<UserHit> searchUsers(String q, String viewerId, int limit) {
         String term = q.strip().toLowerCase();
         if (term.isEmpty()) return List.of();
         List<User> hits = users.searchUsers(term, PageRequest.of(0, Math.max(1, Math.min(limit, 20))));
+        // Search safety: blocked-involving and muted users never surface.
+        if (viewerId != null && !hits.isEmpty()) {
+            java.util.Set<Long> hidden = safety.hiddenAuthorIds(Long.parseLong(viewerId));
+            hits = hits.stream().filter(u -> !hidden.contains(u.getId())).toList();
+        }
         // One batched profile load for the whole result set.
         Map<Long, UserProfile> profileById = new HashMap<>();
         if (!hits.isEmpty()) {
@@ -63,13 +71,19 @@ public class SearchService {
                 .toList();
     }
 
-    /** Public posts matching the term — never exposes FOLLOWERS/PRIVATE content via search. */
+    /** Public posts matching the term — never exposes FOLLOWERS/PRIVATE or blocked users' content. */
     @Transactional(readOnly = true)
     public List<PostDtos.PostDto> searchPosts(User viewer, String q, int limit) {
         String term = q.strip();
         if (term.isEmpty()) return List.of();
         List<Post> hits = posts.searchPublicByContent(term, PageRequest.of(0, Math.max(1, Math.min(limit, 20))));
         if (hits.isEmpty()) return List.of();
+        // Search safety: filter blocked/muted authors out of the result set.
+        if (viewer != null) {
+            java.util.Set<Long> hidden = safety.hiddenAuthorIds(viewer.getId());
+            hits = hits.stream().filter(p -> !hidden.contains(p.getAuthor().getId())).toList();
+            if (hits.isEmpty()) return List.of();
+        }
         List<Long> postIds = hits.stream().map(Post::getId).toList();
         // Batched profiles + like counts (was one profile query and one count per hit).
         Map<Long, UserProfile> profileById = new HashMap<>();

@@ -52,6 +52,16 @@ public class AuthController {
         return authService.resendVerification(me);
     }
 
+    /** Self-service account deletion — permanent, cascades everything, ends the session. */
+    @DeleteMapping("/me")
+    public AuthDtos.MessageResponse deleteAccount(@AuthenticationPrincipal User me,
+                                                  HttpServletRequest http) {
+        limit(http, "delete-account", "10/3600");
+        var result = authService.deleteAccount(me);
+        // The access token dies with the account's sessions; the client clears its own state.
+        return result;
+    }
+
     @PostMapping("/login")
     public Object login(@Valid @RequestBody AuthDtos.LoginRequest req, HttpServletRequest http) {
         limit(http, "login", props.rateLimit().login());

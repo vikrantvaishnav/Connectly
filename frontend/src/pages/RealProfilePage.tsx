@@ -192,6 +192,21 @@ export function RealProfilePage({ own }: { own?: boolean }) {
                 >
                   Message
                 </button>
+                <button
+                  onClick={async () => {
+                    if (!window.confirm(`Block @${p.username}? You will not see each other anywhere, and existing chats and follows are removed.`)) return
+                    try {
+                      await api.post(`/users/${p.id}/block`)
+                      pushToast(`Blocked @${p.username} 🚫`, '🚫')
+                      navigate('/home')
+                    } catch (e) {
+                      pushToast(apiErrorMessage(e), '⚠️')
+                    }
+                  }}
+                  className="rounded-xl border border-rose-500/40 px-3 py-2 text-sm font-medium text-rose-400 transition-colors hover:bg-rose-500/10"
+                >
+                  Block
+                </button>
               </div>
             )}
             {isMe && (

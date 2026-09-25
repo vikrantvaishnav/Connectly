@@ -71,16 +71,19 @@ public class NearbyService {
     private final FollowRepository follows;
     private final ConnectionRepository connections;
     private final PresenceService presence;
+    private final com.connectly.social.SafetyService safety;
 
     public NearbyService(UserLocationRepository locations, UserRepository users,
                          UserProfileRepository profiles, FollowRepository follows,
-                         ConnectionRepository connections, PresenceService presence) {
+                         ConnectionRepository connections, PresenceService presence,
+                         com.connectly.social.SafetyService safety) {
         this.locations = locations;
         this.users = users;
         this.profiles = profiles;
         this.follows = follows;
         this.connections = connections;
         this.presence = presence;
+        this.safety = safety;
     }
 
     // ---------- location writes ----------
@@ -216,12 +219,15 @@ public class NearbyService {
         }
 
         Set<Long> online = presence.onlineAmong(ids);
+        // Safety: blocked (either direction) and muted users never appear nearby.
+        Set<Long> hidden = safety.hiddenAuthorIds(viewer.getId());
         // The viewer is never among the candidates, so load their own tags separately.
         Set<String> mine = interestsOf(profiles.findByUserId(viewer.getId()).orElse(null));
 
         List<Candidate> out = new ArrayList<>(fresh.size());
         for (UserLocation loc : fresh) {
             Long otherId = loc.getUserId();
+            if (hidden.contains(otherId)) continue;
             String status = connByOther.getOrDefault(otherId, "NONE");
             if (excludeMatched && "ACCEPTED".equals(status)) continue;
             double d = haversineKm(lat, lng, loc.getLatitude().doubleValue(), loc.getLongitude().doubleValue());

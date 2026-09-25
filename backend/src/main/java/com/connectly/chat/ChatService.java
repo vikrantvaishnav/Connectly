@@ -29,10 +29,12 @@ public class ChatService {
     private final UserRepository users;
     private final UserProfileRepository profiles;
     private final ChatPusher pusher;
+    private final com.connectly.social.SafetyService safety;
 
     public ChatService(ConversationRepository conversations, MessageRepository messages,
                        ConversationStateRepository states, MessageReactionRepository reactions,
-                       UserRepository users, UserProfileRepository profiles, ChatPusher pusher) {
+                       UserRepository users, UserProfileRepository profiles, ChatPusher pusher,
+                       com.connectly.social.SafetyService safety) {
         this.conversations = conversations;
         this.messages = messages;
         this.states = states;
@@ -40,6 +42,7 @@ public class ChatService {
         this.users = users;
         this.profiles = profiles;
         this.pusher = pusher;
+        this.safety = safety;
     }
 
     // ---- inbox ------------------------------------------------------------
@@ -110,6 +113,8 @@ public class ChatService {
         if (!users.existsById(otherUserId)) {
             throw ApiException.notFound("User not found");
         }
+        // Blocked pairs cannot open new conversations (and blocks delete old ones).
+        safety.requireNotBlocked(me.getId(), otherUserId);
 
         long a = Math.min(me.getId(), otherUserId);
         long b = Math.max(me.getId(), otherUserId);
@@ -183,6 +188,9 @@ public class ChatService {
     @Transactional
     public MessageView send(User me, Long conversationId, String content) {
         Conversation conv = requireParticipant(me, conversationId);
+        // Defense in depth: a block deletes the shared conversation, but if a
+        // client held the id, sending still fails closed.
+        safety.requireNotBlocked(me.getId(), conv.otherOf(me).getId());
         String body = content == null ? "" : content.trim();
         if (body.isEmpty()) {
             throw ApiException.badRequest("Message must not be empty");

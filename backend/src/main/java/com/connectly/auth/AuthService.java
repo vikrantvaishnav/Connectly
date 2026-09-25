@@ -44,6 +44,8 @@ public class AuthService {
     private final JwtProperties props;
     private final PasswordEncoder passwordEncoder;
     private final MailService mailService;
+    private final com.connectly.notification.NotificationRepository notifications;
+    private final AuditLogRepository auditLogs;
     private final LoginGuard loginGuard;
     private final SessionGuard sessionGuard;
 
@@ -53,7 +55,9 @@ public class AuthService {
             TokenService tokenService, TotpService totpService,
             JwtService jwtService, JwtProperties props,
             PasswordEncoder passwordEncoder, MailService mailService,
-            LoginGuard loginGuard, SessionGuard sessionGuard) {
+            LoginGuard loginGuard, SessionGuard sessionGuard,
+            com.connectly.notification.NotificationRepository notifications,
+            AuditLogRepository auditLogs) {
         this.users = users;
         this.profiles = profiles;
         this.sessions = sessions;
@@ -66,6 +70,8 @@ public class AuthService {
         this.props = props;
         this.passwordEncoder = passwordEncoder;
         this.mailService = mailService;
+        this.notifications = notifications;
+        this.auditLogs = auditLogs;
         this.loginGuard = loginGuard;
         this.sessionGuard = sessionGuard;
     }
@@ -131,6 +137,30 @@ public class AuthService {
         }
         issueEmailToken(me, AuthToken.Type.VERIFY_EMAIL, Duration.ofHours(24));
         return new AuthDtos.MessageResponse("Verification email sent.");
+    }
+
+    /**
+     * Self-service account deletion (Data & Compliance). In one transaction:
+     * everything the user owns cascades away with the users row (posts, comments,
+     * likes, follows, connections, conversations, messages, reactions,
+     * notifications, memberships, voice participation, location, sessions,
+     * tokens, recovery codes, profile); audit rows are detached so the
+     * moderation timeline survives without pointing at a ghost; and the login
+     * identifier is retired so the email/username can never be re-registered
+     * ambiguously.
+     */
+    @Transactional
+    public AuthDtos.MessageResponse deleteAccount(User me) {
+        Long id = me.getId();
+
+        // Cross-aggregate cleanups that have no FK to users.
+        notifications.deleteAllInvolving(id);
+
+        // Detach audit history: keep the event, lose the personal reference.
+        auditLogs.detachUser(id);
+
+        users.delete(me);
+        return new AuthDtos.MessageResponse("Account deleted. This cannot be undone.");
     }
 
     @Transactional

@@ -21,4 +21,12 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
            order by coalesce(c.lastMessageAt, c.createdAt) desc
            """)
     List<Conversation> findConversationsOf(@Param("userId") Long userId, Pageable pageable);
+
+    /** Either-direction lookup used by the block system to tear down shared DMs. */
+    @Query("""
+           select c from Conversation c
+           where (c.userA.id = :a and c.userB.id = :b)
+              or (c.userA.id = :b and c.userB.id = :a)
+           """)
+    Optional<Conversation> findBetween(@Param("a") Long a, @Param("b") Long b);
 }

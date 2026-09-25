@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 @Service
 public class PostService {
@@ -28,11 +29,13 @@ public class PostService {
     private final UserRepository users;
     private final UserProfileRepository profiles;
     private final com.connectly.notification.NotificationService notifier;
+    private final com.connectly.social.SafetyService safety;
 
     public PostService(PostRepository posts, PostLikeRepository likes, CommentRepository comments,
                        com.connectly.social.FollowRepository follows, ConnectionRepository connections,
                        UserRepository users, UserProfileRepository profiles,
-                       com.connectly.notification.NotificationService notifier) {
+                       com.connectly.notification.NotificationService notifier,
+                       com.connectly.social.SafetyService safety) {
         this.posts = posts;
         this.likes = likes;
         this.comments = comments;
@@ -41,6 +44,7 @@ public class PostService {
         this.users = users;
         this.profiles = profiles;
         this.notifier = notifier;
+        this.safety = safety;
     }
 
     // ---------- writes ----------
@@ -84,7 +88,7 @@ public class PostService {
     @Transactional
     public boolean toggleLike(User actor, long postId) {
         Post post = posts.findById(postId).orElseThrow(() -> ApiException.notFound("Post not found"));
-        requireCanView(post, actor);
+        requireCanView(post, actor); // includes the block gate
         return likes.findByPostIdAndUserId(postId, actor.getId())
                 .map(existing -> {
                     likes.delete(existing);
@@ -148,8 +152,12 @@ public class PostService {
 
     @Transactional(readOnly = true)
     public PostDtos.PostPage feed(User viewer, int page, int size) {
+        // Muted authors drop out of the home feed; blocked ones can't be followed
+        // in the first place, but a stale follow from before a block is filtered too.
+        Set<Long> hidden = hiddenAuthorsFor(viewer.getId());
         List<Long> authorIds = new java.util.ArrayList<>(
-                follows.findByFollowerId(viewer.getId()).stream().map(f -> f.getFollowee().getId()).toList());
+                follows.findByFollowerId(viewer.getId()).stream().map(f -> f.getFollowee().getId())
+                        .filter(id -> !hidden.contains(id)).toList());
         authorIds.add(viewer.getId()); // home feed includes your own posts
         Page<Post> result = posts.feedFor(authorIds, PageRequest.of(page, Math.min(size, 50)));
         return toPage(result, viewer);
@@ -159,7 +167,19 @@ public class PostService {
     public PostDtos.PostPage explore(User viewer, int page, int size) {
         Page<Post> result = posts.findByVisibilityOrderByCreatedAtDesc(Post.Visibility.PUBLIC,
                 PageRequest.of(page, Math.min(size, 50)));
-        return toPage(result, viewer);
+        // Blocked/muted authors never surface in Explore.
+        Set<Long> hidden = hiddenAuthorsFor(viewer == null ? 0 : viewer.getId());
+        List<Post> visible = viewer == null ? result.getContent()
+                : result.getContent().stream()
+                        .filter(p -> !hidden.contains(p.getAuthor().getId()))
+                        .toList();
+        return new PostDtos.PostPage(mapPosts(visible, viewer), result.getNumber(), result.getSize(), result.hasNext());
+    }
+
+    /** Authors whose content the viewer must not see (mutes + any-direction blocks). */
+    private Set<Long> hiddenAuthorsFor(long viewerId) {
+        if (viewerId == 0) return Set.of();
+        return safety.hiddenAuthorIds(viewerId);
     }
 
     @Transactional(readOnly = true)
@@ -187,6 +207,11 @@ public class PostService {
     private void requireCanView(Post post, User viewer) {
         if (viewer != null && viewer.getId().equals(post.getAuthor().getId())) return;
         if (viewer != null && viewer.getRole() == User.Role.ADMIN) return;
+        // Safety gate: a block in either direction hides all of the author's content,
+        // 404-style so nothing about the post's existence leaks.
+        if (viewer != null) {
+            safety.requireNotBlocked(viewer.getId(), post.getAuthor().getId());
+        }
         switch (post.getVisibility()) {
             case PUBLIC -> {}
             case FOLLOWERS -> {

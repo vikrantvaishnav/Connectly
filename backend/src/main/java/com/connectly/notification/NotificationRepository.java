@@ -17,4 +17,14 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Modifying
     @Query("update Notification n set n.read = true where n.recipient.id = :recipientId and n.read = false")
     int markAllRead(@Param("recipientId") Long recipientId);
+
+    /** Purges notifications between two users (block teardown, account deletion). */
+    @Modifying
+    @Query("delete from Notification n where (n.recipient.id = :a and n.actor.id = :b) or (n.recipient.id = :b and n.actor.id = :a)")
+    void deleteAllForUser(@Param("a") Long a, @Param("b") Long b);
+
+    /** Purges everything a user would ever receive — used by account deletion. */
+    @Modifying
+    @Query("delete from Notification n where n.recipient.id = :userId or n.actor.id = :userId")
+    void deleteAllInvolving(@Param("userId") Long userId);
 }

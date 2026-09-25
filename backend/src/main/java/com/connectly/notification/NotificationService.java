@@ -25,11 +25,14 @@ public class NotificationService {
     private final NotificationRepository notifications;
     private final UserProfileRepository profiles;
     private final ChatPusher pusher;
+    private final com.connectly.social.SafetyService safety;
 
-    public NotificationService(NotificationRepository notifications, UserProfileRepository profiles, ChatPusher pusher) {
+    public NotificationService(NotificationRepository notifications, UserProfileRepository profiles,
+                               ChatPusher pusher, com.connectly.social.SafetyService safety) {
         this.notifications = notifications;
         this.profiles = profiles;
         this.pusher = pusher;
+        this.safety = safety;
     }
 
     public record NotificationView(Long id, String type, Long actorId, String actorUsername, String actorName,
@@ -57,6 +60,10 @@ public class NotificationService {
     public void notify(User recipient, User actor, String type, String entityType, Long entityId) {
         if (actor != null && actor.getId().equals(recipient.getId())) {
             return; // never self-notify
+        }
+        // A block in either direction silences all cross-notification.
+        if (actor != null && safety.blockedBetween(recipient.getId(), actor.getId())) {
+            return;
         }
         Notification n = new Notification();
         n.setRecipient(recipient);

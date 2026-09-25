@@ -17,15 +17,18 @@ public class SocialService {
     private final UserRepository users;
     private final com.connectly.user.UserProfileRepository profiles;
     private final com.connectly.notification.NotificationService notifier;
+    private final SafetyService safety;
 
     public SocialService(FollowRepository follows, ConnectionRepository connections, UserRepository users,
                          com.connectly.user.UserProfileRepository profiles,
-                         com.connectly.notification.NotificationService notifier) {
+                         com.connectly.notification.NotificationService notifier,
+                         SafetyService safety) {
         this.follows = follows;
         this.connections = connections;
         this.users = users;
         this.profiles = profiles;
         this.notifier = notifier;
+        this.safety = safety;
     }
 
     // ---------- follows ----------
@@ -35,6 +38,8 @@ public class SocialService {
         if (actor.getId().equals(followeeId)) {
             throw ApiException.badRequest("You cannot follow yourself");
         }
+        // A block in either direction hides both accounts from each other.
+        safety.requireNotBlocked(actor.getId(), followeeId);
         User followee = users.findById(followeeId).orElseThrow(() -> ApiException.notFound("User not found"));
         if (follows.existsByFollowerIdAndFolloweeId(actor.getId(), followeeId)) return;
         Follow f = new Follow();
@@ -68,6 +73,9 @@ public class SocialService {
             throw ApiException.badRequest("You cannot connect with yourself");
         }
         User target = users.findById(targetId).orElseThrow(() -> ApiException.notFound("User not found"));
+        // Blocked pairs can never (re)connect — blocking tears the row down and
+        // this gate keeps it torn down.
+        safety.requireNotBlocked(actor.getId(), targetId);
 
         Connection c = connections.findBetween(actor.getId(), targetId).orElse(null);
         if (c == null) {
