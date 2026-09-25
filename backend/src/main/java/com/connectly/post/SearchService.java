@@ -16,7 +16,8 @@ import java.util.Map;
 @Service
 public class SearchService {
 
-    public record UserHit(long id, String username, String firstName, String lastName, String profession) {}
+    public record UserHit(long id, String username, String firstName, String lastName, String profession,
+                          String profileImage) {}
 
     public record SearchResults(List<UserHit> users, List<PostDtos.PostDto> posts) {}
 
@@ -56,7 +57,8 @@ public class SearchService {
                     return new UserHit(u.getId(), u.getUsername(),
                             p != null ? p.getFirstName() : null,
                             p != null ? p.getLastName() : null,
-                            p != null ? p.getProfession() : null);
+                            p != null ? p.getProfession() : null,
+                            p != null ? p.getProfileImage() : null);
                 })
                 .toList();
     }

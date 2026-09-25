@@ -59,7 +59,7 @@ export function RealMessagesPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [hits, setHits] = useState<{ id: number; username: string; firstName: string | null; lastName: string | null }[]>([])
+  const [hits, setHits] = useState<{ id: number; username: string; firstName: string | null; lastName: string | null; profileImage: string | null }[]>([])
   const [connected, setConnected] = useState(false)
   const [typingName, setTypingName] = useState<string | null>(null)
   const [typingUntil, setTypingUntil] = useState(0)
@@ -262,7 +262,7 @@ export function RealMessagesPage() {
                   onClick={() => void startChatWith(u.id)}
                   className="flex w-full items-center gap-3 p-2.5 text-left hover:bg-[var(--surface-2)]"
                 >
-                  <Avatar name={`${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username} id={String(u.id)} />
+                  <Avatar name={`${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.username} id={String(u.id)} src={u.profileImage} />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold">{[u.firstName, u.lastName].filter(Boolean).join(' ') || u.username}</span>
                     <span className="block truncate text-xs text-[var(--muted)]">@{u.username}</span>

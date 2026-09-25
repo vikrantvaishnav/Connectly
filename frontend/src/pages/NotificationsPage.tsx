@@ -11,6 +11,7 @@ interface NotificationView {
   actorId: number | null
   actorUsername: string | null
   actorName: string | null
+  actorProfileImage: string | null
   entityType: string | null
   entityId: number | null
   read: boolean
@@ -129,7 +130,7 @@ function RealNotifications() {
           >
             <span className="text-xl" aria-hidden="true">{KIND_ICON[n.type] ?? '🔔'}</span>
             {n.actorUsername && (
-              <Avatar name={n.actorName ?? n.actorUsername} id={String(n.actorId ?? n.id)} size="sm" />
+              <Avatar name={n.actorName ?? n.actorUsername} id={String(n.actorId ?? n.id)} size="sm" src={n.actorProfileImage} />
             )}
             <p className="min-w-0 flex-1 text-sm">
               {n.actorName && <span className="font-semibold">{n.actorName}{' '}</span>}

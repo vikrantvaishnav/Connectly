@@ -6,7 +6,7 @@ import { useAppStore } from '../store/appStore'
 import { useAuthStore } from '../store/authStore'
 import { Avatar } from './Avatar'
 
-interface ApiUserHit { id: number; username: string; firstName: string | null; lastName: string | null; profession: string | null }
+interface ApiUserHit { id: number; username: string; firstName: string | null; lastName: string | null; profession: string | null; profileImage: string | null }
 interface ApiPostHit { id: number; content: string; author: { id: number; username: string } }
 
 /** Global search across users, posts, communities, tags. Opens with Ctrl+K / ⌘K. */
@@ -89,7 +89,7 @@ function ApiSearchDialog({ onClose, navigate }: { onClose: () => void; navigate:
             <Section title="People">
               {userHits.map((u) => (
                 <ResultRow key={u.id} onClick={() => go(`/profile/${u.username}`)}>
-                  <Avatar name={u.firstName ? `${u.firstName} ${u.lastName ?? ''}` : u.username} id={String(u.id)} size="sm" />
+                  <Avatar name={u.firstName ? `${u.firstName} ${u.lastName ?? ''}` : u.username} id={String(u.id)} size="sm" src={u.profileImage} />
                   <span className="font-medium">{u.firstName ? `${u.firstName} ${u.lastName ?? ''}` : u.username}</span>
                   <span className="text-[var(--muted)]">@{u.username}</span>
                 </ResultRow>

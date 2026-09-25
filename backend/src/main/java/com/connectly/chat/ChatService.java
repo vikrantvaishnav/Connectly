@@ -78,6 +78,7 @@ public class ChatService {
                     return new ConversationSummary(
                             c.getId(), other.getId(), other.getUsername(),
                             p == null ? null : p.getFirstName(), p == null ? null : p.getLastName(),
+                            p == null ? null : p.getProfileImage(),
                             c.getLastMessage(), c.getLastMessageAt(),
                             unread.getOrDefault(c.getId(), 0L));
                 })
@@ -90,11 +91,12 @@ public class ChatService {
         return new ConversationSummary(
                 c.getId(), other.getId(), other.getUsername(),
                 p == null ? null : p.getFirstName(), p == null ? null : p.getLastName(),
+                p == null ? null : p.getProfileImage(),
                 c.getLastMessage(), c.getLastMessageAt(), unread);
     }
 
     public record ConversationSummary(Long id, Long otherUserId, String otherUsername,
-                                      String otherFirstName, String otherLastName,
+                                      String otherFirstName, String otherLastName, String otherProfileImage,
                                       String lastMessage, Instant lastMessageAt, long unread) {}
 
     // ---- conversation lifecycle -------------------------------------------

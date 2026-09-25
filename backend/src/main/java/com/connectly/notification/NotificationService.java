@@ -33,6 +33,7 @@ public class NotificationService {
     }
 
     public record NotificationView(Long id, String type, Long actorId, String actorUsername, String actorName,
+                                   String actorProfileImage,
                                    String entityType, Long entityId, boolean read, Instant createdAt) {}
 
     private NotificationView toView(Notification n, UserProfile actorProfile) {
@@ -47,7 +48,8 @@ public class NotificationService {
             if (name == null || name.isBlank()) name = username;
         }
         return new NotificationView(n.getId(), n.getType(), n.getActor() == null ? null : n.getActor().getId(),
-                username, name, n.getEntityType(), n.getEntityId(), n.isRead(), n.getCreatedAt());
+                username, name, actorProfile == null ? null : actorProfile.getProfileImage(),
+                n.getEntityType(), n.getEntityId(), n.isRead(), n.getCreatedAt());
     }
 
     /** Creates a notification and pushes a realtime ping. Never notifies the actor about themself. */
