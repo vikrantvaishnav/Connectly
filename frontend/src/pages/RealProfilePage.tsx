@@ -13,6 +13,10 @@ interface RealProfile {
   lastName: string | null
   bio: string | null
   profession: string | null
+  profileImage: string | null
+  interests: string | null
+  lookingFor: string | null
+  age: number | null
   postCount: number
   followerCount: number
   followingCount: number
@@ -63,10 +67,24 @@ export function RealProfilePage({ own }: { own?: boolean }) {
 
   const [bio, setBio] = useState<string | null>(null)
   const [profession, setProfession] = useState<string | null>(null)
+  const [interests, setInterests] = useState<string | null>(null)
+  const [lookingFor, setLookingFor] = useState<string | null>(null)
+  const [dob, setDob] = useState('')
+  const [photo, setPhoto] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [editing, setEditing] = useState(false)
 
   const saveProfile = useMutation({
-    mutationFn: () => api.put('/users/me', { bio, profession }),
+    mutationFn: () => api.put('/users/me', {
+      firstName: profile.data?.firstName,
+      lastName: profile.data?.lastName,
+      bio,
+      profession,
+      interests,
+      lookingFor,
+      dateOfBirth: dob || null,
+      profileImage: photo,
+    }),
     onSuccess: () => {
       setEditing(false)
       queryClient.invalidateQueries({ queryKey: ['real-profile', effectiveUsername] })
@@ -74,6 +92,33 @@ export function RealProfilePage({ own }: { own?: boolean }) {
     },
     onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
   })
+
+  /** Photo upload: /media is multipart, returns the app-relative URL we then save. */
+  const uploadPhoto = async (file: File) => {
+    setUploading(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const { data } = await api.post<{ url: string }>('/media', form)
+      setPhoto(data.url)
+      pushToast('Photo uploaded — tap Save to keep it', '🖼️')
+    } catch (e) {
+      pushToast(apiErrorMessage(e), '⚠️')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const startEditing = () => {
+    const p0 = profile.data
+    setBio(p0?.bio ?? null)
+    setProfession(p0?.profession ?? null)
+    setInterests(p0?.interests ?? null)
+    setLookingFor(p0?.lookingFor ?? null)
+    setPhoto(p0?.profileImage ?? null)
+    setDob('')
+    setEditing(true)
+  }
 
   if (profile.isPending) {
     return <div className="p-10 text-center text-sm text-[var(--muted)]">Loading…</div>
@@ -96,6 +141,7 @@ export function RealProfilePage({ own }: { own?: boolean }) {
   const initials = name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase()
   const showBio = editing ? bio : (p.bio ?? '')
   const showProfession = editing ? profession : (p.profession ?? '')
+  const tags = (p.interests ?? '').split(',').map((t) => t.trim()).filter(Boolean)
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
@@ -103,8 +149,12 @@ export function RealProfilePage({ own }: { own?: boolean }) {
         <div className="h-28 bg-gradient-to-br from-indigo-500 via-violet-600 to-fuchsia-600" />
         <div className="px-5 pb-5">
           <div className="-mt-10 mb-3 flex items-end justify-between">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-xl font-bold text-white ring-4 ring-[var(--surface)]">
-              {initials}
+            <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-xl font-bold text-white ring-4 ring-[var(--surface)]">
+              {p.profileImage ? (
+                <img src={p.profileImage} alt={name} className="h-full w-full object-cover" />
+              ) : (
+                initials
+              )}
             </div>
             {!isMe && (
               <div className="mb-1 flex gap-2">
@@ -142,7 +192,7 @@ export function RealProfilePage({ own }: { own?: boolean }) {
             )}
             {isMe && (
               <button
-                onClick={() => { setEditing(v => !v); setBio(p.bio); setProfession(p.profession) }}
+                onClick={() => (editing ? setEditing(false) : startEditing())}
                 className="mb-1 rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
               >
                 {editing ? 'Cancel' : 'Edit profile'}
@@ -150,11 +200,34 @@ export function RealProfilePage({ own }: { own?: boolean }) {
             )}
           </div>
 
-          <h1 className="text-xl font-bold">{name}</h1>
+          <h1 className="text-xl font-bold">
+            {name}
+            {p.age != null && <span className="font-normal text-[var(--muted)]">, {p.age}</span>}
+          </h1>
           <p className="text-sm text-[var(--muted)]">@{p.username}{p.profession ? ` · ${p.profession}` : ''}</p>
 
           {editing ? (
             <div className="mt-3 space-y-2">
+              {/* photo */}
+              <div className="flex items-center gap-3">
+                <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-lg font-bold text-white">
+                  {photo ? <img src={photo} alt="preview" className="h-full w-full object-cover" /> : initials}
+                </div>
+                <label className="cursor-pointer rounded-xl border border-[var(--border)] px-3 py-2 text-sm font-medium hover:bg-[var(--surface-2)]">
+                  {uploading ? 'Uploading…' : photo ? 'Change photo' : 'Add a photo'}
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/gif,image/webp"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0]
+                      if (f) void uploadPhoto(f)
+                    }}
+                  />
+                </label>
+                <p className="text-xs text-[var(--muted)]">PNG/JPG/GIF/WebP · up to 5 MB</p>
+              </div>
+
               <textarea
                 value={showBio ?? ''}
                 onChange={(e) => setBio(e.target.value)}
@@ -170,16 +243,53 @@ export function RealProfilePage({ own }: { own?: boolean }) {
                 maxLength={80}
                 className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
               />
+              <input
+                value={lookingFor ?? ''}
+                onChange={(e) => setLookingFor(e.target.value)}
+                placeholder="Looking for… e.g. Coffee & good conversation"
+                maxLength={60}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+              />
+              <input
+                value={interests ?? ''}
+                onChange={(e) => setInterests(e.target.value)}
+                placeholder="Interests — comma separated, e.g. coffee, hiking, techno"
+                maxLength={300}
+                className="w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+              />
+              <label className="block text-xs text-[var(--muted)]">
+                Date of birth (used to show your age, 18+)
+                <input
+                  type="date"
+                  value={dob}
+                  onChange={(e) => setDob(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                />
+              </label>
               <button
                 onClick={() => saveProfile.mutate()}
-                disabled={saveProfile.isPending}
+                disabled={saveProfile.isPending || uploading}
                 className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-40"
               >
                 {saveProfile.isPending ? 'Saving…' : 'Save'}
               </button>
             </div>
           ) : (
-            <p className="mt-2 whitespace-pre-wrap text-sm">{p.bio || 'No bio yet.'}</p>
+            <div className="mt-2 space-y-2">
+              {p.lookingFor && (
+                <p className="text-sm font-medium text-rose-400">💘 {p.lookingFor}</p>
+              )}
+              <p className="whitespace-pre-wrap text-sm">{p.bio || 'No bio yet.'}</p>
+              {tags.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((t) => (
+                    <span key={t} className="rounded-full bg-[var(--surface-2)] px-2.5 py-0.5 text-xs text-[var(--muted)]">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           <div className="mt-4 flex gap-6 text-sm">

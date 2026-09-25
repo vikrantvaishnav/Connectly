@@ -22,4 +22,20 @@ public interface ConnectionRepository extends JpaRepository<Connection, Long> {
     List<Connection> findByReceiverIdAndStatusOrderByCreatedAtDesc(Long receiverId, Connection.Status status);
 
     List<Connection> findBySenderIdAndStatusOrderByCreatedAtDesc(Long senderId, Connection.Status status);
+
+    long countByReceiverIdAndStatus(Long receiverId, Connection.Status status);
+
+    long countBySenderIdAndStatus(Long senderId, Connection.Status status);
+
+    /**
+     * Every connection row (either direction) between {@code me} and any of {@code ids}.
+     * Powers batched relationship badges on discovery cards without an N+1.
+     */
+    @Query("""
+            select c from Connection c
+            join fetch c.sender join fetch c.receiver
+            where (c.sender.id = :me and c.receiver.id in :ids)
+               or (c.receiver.id = :me and c.sender.id in :ids)
+            """)
+    List<Connection> findAllBetween(@Param("me") Long me, @Param("ids") java.util.Collection<Long> ids);
 }

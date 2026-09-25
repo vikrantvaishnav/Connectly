@@ -21,6 +21,7 @@ export function Avatar({
   size = 'md',
   online,
   ring,
+  src,
   className = '',
 }: {
   name: string
@@ -29,6 +30,8 @@ export function Avatar({
   online?: boolean
   /** Story ring styling */
   ring?: boolean
+  /** App-relative photo URL (e.g. /media/abc.jpg). Falls back to gradient initials. */
+  src?: string | null
   className?: string
 }) {
   const sizes = {
@@ -38,6 +41,7 @@ export function Avatar({
     lg: 'h-14 w-14 text-lg',
     xl: 'h-24 w-24 text-3xl',
   }
+  const pixels = { xs: 24, sm: 32, md: 40, lg: 56, xl: 96 }
   const grad = GRADIENTS[hashCode(id) % GRADIENTS.length]
   const initials = name
     .split(' ')
@@ -45,17 +49,27 @@ export function Avatar({
     .slice(0, 2)
     .join('')
     .toUpperCase()
+  const ringCls = ring ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-[var(--bg)]' : ''
 
   return (
     <span className={`relative inline-block shrink-0 ${className}`}>
-      <span
-        className={`inline-flex items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ${grad} ${sizes[size]} ${
-          ring ? 'ring-2 ring-indigo-400 ring-offset-2 ring-offset-[var(--bg)]' : ''
-        }`}
-        aria-hidden="true"
-      >
-        {initials}
-      </span>
+      {src ? (
+        <img
+          src={src}
+          alt={name}
+          width={pixels[size]}
+          height={pixels[size]}
+          loading="lazy"
+          className={`inline-block rounded-full object-cover ${sizes[size].split(' ')[0]} ${sizes[size].split(' ')[1]} ${ringCls}`}
+        />
+      ) : (
+        <span
+          className={`inline-flex items-center justify-center rounded-full bg-gradient-to-br font-semibold text-white ${grad} ${sizes[size]} ${ringCls}`}
+          aria-hidden="true"
+        >
+          {initials}
+        </span>
+      )}
       {online !== undefined && (
         <span
           className={`absolute bottom-0 right-0 block rounded-full border-2 border-[var(--surface)] ${

@@ -35,6 +35,7 @@ public class ChatController {
 
     public record OpenConversationRequest(Long userId) {}
     public record SendMessageRequest(@NotBlank @Size(max = 4000) String content) {}
+    public record ReactionRequest(@NotBlank @Size(max = 16) String emoji) {}
 
     @GetMapping("/conversations")
     public List<ChatService.ConversationSummary> inbox(@AuthenticationPrincipal User me) {
@@ -73,5 +74,23 @@ public class ChatController {
         Long upTo = body == null ? null : body.get("upToMessageId");
         chat.markRead(me, id, upTo);
         return java.util.Map.of("ok", true);
+    }
+
+    /** "I am typing" ping — relayed, never stored. Rate-limited so it can't be used to spam. */
+    @PostMapping("/conversations/{id}/typing")
+    public org.springframework.http.ResponseEntity<Void> typing(@AuthenticationPrincipal User me,
+                                                                @PathVariable Long id) {
+        require(rateLimiter.allow("chat-typing:" + me.getUsername(), 120, 60));
+        chat.typing(me, id);
+        return org.springframework.http.ResponseEntity.noContent().build();
+    }
+
+    /** Toggle an emoji reaction; returns the message's updated tallies. */
+    @PostMapping("/messages/{id}/reactions")
+    public List<ChatService.ReactionView> react(@AuthenticationPrincipal User me,
+                                                @PathVariable Long id,
+                                                @RequestBody ReactionRequest req) {
+        require(rateLimiter.allow("chat-react:" + me.getUsername(), 120, 60));
+        return chat.toggleReaction(me, id, req.emoji());
     }
 }

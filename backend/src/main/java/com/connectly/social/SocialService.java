@@ -155,26 +155,46 @@ public class SocialService {
         }
     }
 
+    /** Badge counts for the Requests/Matches inbox — 3 cheap count queries. */
+    public record Summary(long incoming, long outgoing, long matches) {}
+
+    @Transactional(readOnly = true)
+    public Summary summary(User actor) {
+        return new Summary(
+                connections.countByReceiverIdAndStatus(actor.getId(), Connection.Status.PENDING),
+                connections.countBySenderIdAndStatus(actor.getId(), Connection.Status.PENDING),
+                connections.countByReceiverIdAndStatus(actor.getId(), Connection.Status.ACCEPTED)
+                        + connections.countBySenderIdAndStatus(actor.getId(), Connection.Status.ACCEPTED));
+    }
+
     @Transactional(readOnly = true)
     public java.util.List<ConnectionDto> listConnections(User actor, String filter) {
-        java.util.function.Function<Connection, ConnectionDto> map = c -> {
+        java.util.List<Connection> rows;
+        if ("incoming".equals(filter)) {
+            rows = connections.findByReceiverIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.PENDING);
+        } else if ("outgoing".equals(filter)) {
+            rows = connections.findBySenderIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.PENDING);
+        } else {
+            rows = java.util.stream.Stream
+                    .concat(connections.findBySenderIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.ACCEPTED).stream(),
+                            connections.findByReceiverIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.ACCEPTED).stream())
+                    .toList();
+        }
+        // One batched profile load for the whole page (was a query per connection).
+        java.util.List<Long> otherIds = rows.stream()
+                .map(c -> c.getSender().getId().equals(actor.getId()) ? c.getReceiver().getId() : c.getSender().getId())
+                .distinct()
+                .toList();
+        java.util.Map<Long, com.connectly.user.UserProfile> profileById = new java.util.HashMap<>();
+        if (!otherIds.isEmpty()) {
+            for (com.connectly.user.UserProfile p : profiles.findByUserIdIn(otherIds)) {
+                profileById.put(p.getUserId(), p);
+            }
+        }
+        return rows.stream().map(c -> {
             boolean outgoing = c.getSender().getId().equals(actor.getId());
             User other = outgoing ? c.getReceiver() : c.getSender();
-            com.connectly.user.UserProfile profile = profiles.findByUserId(other.getId()).orElse(null);
-            return ConnectionDto.from(c, actor.getId(), profile);
-        };
-        if ("incoming".equals(filter)) {
-            return connections.findByReceiverIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.PENDING)
-                    .stream().map(map).toList();
-        }
-        if ("outgoing".equals(filter)) {
-            return connections.findBySenderIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.PENDING)
-                    .stream().map(map).toList();
-        }
-        return java.util.stream.Stream
-                .concat(connections.findBySenderIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.ACCEPTED).stream(),
-                        connections.findByReceiverIdAndStatusOrderByCreatedAtDesc(actor.getId(), Connection.Status.ACCEPTED).stream())
-                .map(map)
-                .toList();
+            return ConnectionDto.from(c, actor.getId(), profileById.get(other.getId()));
+        }).toList();
     }
 }

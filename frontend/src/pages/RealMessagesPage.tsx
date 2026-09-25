@@ -12,9 +12,16 @@ interface ConversationSummary {
   otherUsername: string
   otherFirstName: string | null
   otherLastName: string | null
+  otherProfileImage: string | null
   lastMessage: string | null
   lastMessageAt: string | null
   unread: number
+}
+
+interface Reaction {
+  emoji: string
+  count: number
+  mine: boolean
 }
 
 interface MessageView {
@@ -24,7 +31,11 @@ interface MessageView {
   content: string
   createdAt: string
   mine: boolean
+  reactions: Reaction[]
 }
+
+/** Quick reactions offered on hover — the Discord staple. */
+const QUICK_REACTIONS = ['❤️', '🔥', '😂', '👍', '😮', '🥰']
 
 function nameOf(c: ConversationSummary) {
   const full = [c.otherFirstName, c.otherLastName].filter(Boolean).join(' ')
@@ -50,7 +61,18 @@ export function RealMessagesPage() {
   const [search, setSearch] = useState('')
   const [hits, setHits] = useState<{ id: number; username: string; firstName: string | null; lastName: string | null }[]>([])
   const [connected, setConnected] = useState(false)
+  const [typingName, setTypingName] = useState<string | null>(null)
+  const [typingUntil, setTypingUntil] = useState(0)
+  const [tick, setTick] = useState(Date.now())
+  const [reactingTo, setReactingTo] = useState<number | null>(null)
   const wsRef = useRef<Client | null>(null)
+  const lastTypingPing = useRef(0)
+
+  // Drives the "is typing…" expiry without re-rendering on every keystroke.
+  useEffect(() => {
+    const t = setInterval(() => setTick(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
 
   const loadInbox = useCallback(async () => {
     try {
@@ -78,7 +100,20 @@ export function RealMessagesPage() {
       reconnectDelay: 3000,
       onConnect: () => {
         setConnected(true)
-        client.subscribe(`/topic/user/${me.id}`, () => {
+        client.subscribe(`/topic/user/${me.id}`, (frame) => {
+          let ping: { type?: string; conversationId?: number; username?: string } = {}
+          try {
+            ping = JSON.parse(frame.body) as typeof ping
+          } catch {
+            /* non-JSON ping — fall through to a plain refetch */
+          }
+          if (ping.type === 'typing') {
+            if (String(ping.conversationId) === String(conversationId)) {
+              setTypingName(ping.username ?? 'Someone')
+              setTypingUntil(Date.now() + 4_000)
+            }
+            return
+          }
           void loadInbox()
           if (conversationId) void loadMessagesRef.current?.()
         })
@@ -133,6 +168,7 @@ export function RealMessagesPage() {
       content: text,
       createdAt: new Date().toISOString(),
       mine: true,
+      reactions: [],
     }
     setMessages((m) => [...m, temp])
     setDraft('')
@@ -148,6 +184,26 @@ export function RealMessagesPage() {
     } finally {
       setSending(false)
     }
+  }
+
+  /** Toggle an emoji reaction and adopt the server's authoritative tallies. */
+  const react = async (messageId: number, emoji: string) => {
+    setReactingTo(null)
+    try {
+      const { data } = await api.post<Reaction[]>(`/messages/${messageId}/reactions`, { emoji })
+      setMessages((m) => m.map((x) => (x.id === messageId ? { ...x, reactions: data } : x)))
+    } catch (err) {
+      useAppStore.getState().pushToast(apiErrorMessage(err))
+    }
+  }
+
+  /** Tell the other side we're typing — throttled so a fast typist sends one ping, not 40. */
+  const pingTyping = () => {
+    if (!conversationId) return
+    const t = Date.now()
+    if (t - lastTypingPing.current < 3000) return
+    lastTypingPing.current = t
+    void api.post(`/conversations/${conversationId}/typing`).catch(() => { /* presence is best-effort */ })
   }
 
   const startChatWith = async (userId: number) => {
@@ -178,6 +234,7 @@ export function RealMessagesPage() {
   }, [search])
 
   const active = convs.find((c) => String(c.id) === conversationId)
+  const isTyping = typingUntil > tick
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden pb-[3.75rem] md:pb-0">
@@ -225,7 +282,7 @@ export function RealMessagesPage() {
                 conversationId === String(c.id) ? 'bg-[var(--accent-soft)]' : 'hover:bg-[var(--surface-2)]'
               }`}
             >
-              <Avatar name={nameOf(c)} id={String(c.otherUserId)} />
+              <Avatar name={nameOf(c)} id={String(c.otherUserId)} src={c.otherProfileImage} />
               <span className="min-w-0 flex-1">
                 <span className="flex items-center justify-between gap-2">
                   <span className="truncate text-sm font-semibold">{nameOf(c)}</span>
@@ -257,25 +314,73 @@ export function RealMessagesPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           {/* header */}
           <div className="flex items-center gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-3">
-            <Avatar name={nameOf(active)} id={String(active.otherUserId)} />
+            <Avatar name={nameOf(active)} id={String(active.otherUserId)} src={active.otherProfileImage} online={isTyping ? undefined : connected} />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">{nameOf(active)}</p>
-              <p className="text-xs text-[var(--muted)]">@{active.otherUsername}</p>
+              <p className="text-xs text-[var(--muted)]">
+                {isTyping ? <span className="text-emerald-400">typing…</span> : `@${active.otherUsername}`}
+              </p>
             </div>
           </div>
 
           {/* messages */}
           <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto p-4">
             {messages.map((m) => (
-              <div key={m.id} className={`flex ${m.mine ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[75%] rounded-2xl px-3.5 py-2 text-sm ${
-                  m.mine ? 'rounded-br-sm bg-[var(--accent)] text-white' : 'rounded-bl-sm bg-[var(--surface-2)]'
-                }`}>
-                  {m.content}
-                  <span className={`ml-2 align-baseline text-[10px] ${m.mine ? 'text-white/70' : 'text-[var(--muted)]'}`}>
-                    {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </span>
+              <div key={m.id} className={`flex flex-col ${m.mine ? 'items-end' : 'items-start'}`}>
+                <div className={`group flex max-w-[80%] items-center gap-1 ${m.mine ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <button
+                    type="button"
+                    onClick={() => setReactingTo(reactingTo === m.id ? null : m.id)}
+                    aria-label="Add reaction"
+                    className="shrink-0 rounded-full px-1 text-xs opacity-0 transition-opacity hover:bg-[var(--surface-2)] group-hover:opacity-100 focus:opacity-100"
+                  >
+                    😊
+                  </button>
+                  <div className={`rounded-2xl px-3.5 py-2 text-sm ${
+                    m.mine ? 'rounded-br-sm bg-[var(--accent)] text-white' : 'rounded-bl-sm bg-[var(--surface-2)]'
+                  }`}>
+                    {m.content}
+                    <span className={`ml-2 align-baseline text-[10px] ${m.mine ? 'text-white/70' : 'text-[var(--muted)]'}`}>
+                      {new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  </div>
                 </div>
+
+                {reactingTo === m.id && (
+                  <div className="mt-1 flex gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1 shadow-sm">
+                    {QUICK_REACTIONS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => void react(m.id, emoji)}
+                        className="rounded-full px-1 text-base transition-transform hover:scale-125"
+                        aria-label={`React ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {m.reactions.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {m.reactions.map((r) => (
+                      <button
+                        key={r.emoji}
+                        type="button"
+                        onClick={() => void react(m.id, r.emoji)}
+                        className={`rounded-full px-2 py-0.5 text-xs transition-colors ${
+                          r.mine
+                            ? 'bg-rose-500/20 text-rose-400 ring-1 ring-rose-500/40'
+                            : 'bg-[var(--surface-2)] text-[var(--muted)] hover:bg-[var(--accent-soft)]'
+                        }`}
+                        title={r.mine ? 'Remove your reaction' : 'React'}
+                      >
+                        {r.emoji} {r.count}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
             {messages.length === 0 && (
@@ -283,11 +388,22 @@ export function RealMessagesPage() {
             )}
           </div>
 
+          {isTyping && (
+            <div className="flex items-center gap-2 px-4 pb-1 text-xs text-[var(--muted)]">
+              <span className="flex gap-0.5" aria-hidden="true">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--muted)]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--muted)] [animation-delay:120ms]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--muted)] [animation-delay:240ms]" />
+              </span>
+              {typingName} is typing…
+            </div>
+          )}
+
           {/* input */}
           <form onSubmit={submit} className="flex gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-3">
             <input
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => { setDraft(e.target.value); pingTyping() }}
               placeholder={`Message ${nameOf(active).split(' ')[0]}…`}
               className="flex-1 rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-4 py-2.5 text-sm outline-none focus:border-[var(--accent)]"
             />

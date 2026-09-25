@@ -42,9 +42,17 @@ public class SearchService {
     public List<UserHit> searchUsers(String q, int limit) {
         String term = q.strip().toLowerCase();
         if (term.isEmpty()) return List.of();
-        return users.searchUsers(term, PageRequest.of(0, Math.max(1, Math.min(limit, 20)))).stream()
+        List<User> hits = users.searchUsers(term, PageRequest.of(0, Math.max(1, Math.min(limit, 20))));
+        // One batched profile load for the whole result set.
+        Map<Long, UserProfile> profileById = new HashMap<>();
+        if (!hits.isEmpty()) {
+            for (UserProfile p : profiles.findByUserIdIn(hits.stream().map(User::getId).toList())) {
+                profileById.put(p.getUserId(), p);
+            }
+        }
+        return hits.stream()
                 .map(u -> {
-                    UserProfile p = profiles.findByUserId(u.getId()).orElse(null);
+                    UserProfile p = profileById.get(u.getId());
                     return new UserHit(u.getId(), u.getUsername(),
                             p != null ? p.getFirstName() : null,
                             p != null ? p.getLastName() : null,
@@ -59,15 +67,22 @@ public class SearchService {
         String term = q.strip();
         if (term.isEmpty()) return List.of();
         List<Post> hits = posts.searchPublicByContent(term, PageRequest.of(0, Math.max(1, Math.min(limit, 20))));
-        Map<Long, UserProfile> profileMap = new HashMap<>();
-        for (Post p : hits) {
-            profileMap.computeIfAbsent(p.getAuthor().getId(),
-                    id -> profiles.findByUserId(id).orElse(null));
+        if (hits.isEmpty()) return List.of();
+        List<Long> postIds = hits.stream().map(Post::getId).toList();
+        // Batched profiles + like counts (was one profile query and one count per hit).
+        Map<Long, UserProfile> profileById = new HashMap<>();
+        for (UserProfile p : profiles.findByUserIdIn(
+                hits.stream().map(p -> p.getAuthor().getId()).distinct().toList())) {
+            profileById.put(p.getUserId(), p);
+        }
+        Map<Long, Long> likeCounts = new HashMap<>();
+        for (Object[] row : likes.countByPostIdIn(postIds)) {
+            likeCounts.put((Long) row[0], (Long) row[1]);
         }
         return hits.stream()
                 .map(p -> PostDtos.PostDto.from(p,
-                        PostDtos.AuthorDto.from(p.getAuthor(), profileMap.get(p.getAuthor().getId())),
-                        likes.countByPostId(p.getId()), 0, false,
+                        PostDtos.AuthorDto.from(p.getAuthor(), profileById.get(p.getAuthor().getId())),
+                        likeCounts.getOrDefault(p.getId(), 0L), 0, false,
                         viewer != null && viewer.getId().equals(p.getAuthor().getId())))
                 .toList();
     }
@@ -93,11 +108,18 @@ public class SearchService {
                 });
     }
 
+    /** Saved posts, newest first — batched (was one full post DTO build per row). */
     @Transactional(readOnly = true)
     public List<PostDtos.PostDto> savedFor(User actor) {
-        return saved.findByUserIdOrderByCreatedAtDesc(actor.getId()).stream()
-                .map(SavedPost::getPost)
-                .map(p -> postService.get(actor, p.getId()))
+        List<Long> ids = saved.findByUserIdOrderByCreatedAtDesc(actor.getId()).stream()
+                .map(s -> s.getPost().getId())
                 .toList();
+        if (ids.isEmpty()) return List.of();
+        Map<Long, Post> byId = new HashMap<>();
+        for (Post p : posts.findAllWithAuthorByIdIn(ids)) {
+            byId.put(p.getId(), p);
+        }
+        List<Post> ordered = ids.stream().map(byId::get).filter(java.util.Objects::nonNull).toList();
+        return postService.mapForViewer(ordered, actor);
     }
 }

@@ -22,10 +22,13 @@ public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
     private final UserRepository userRepository;
+    private final com.connectly.presence.PresenceService presence;
 
-    public JwtAuthFilter(JwtService jwtService, UserRepository userRepository) {
+    public JwtAuthFilter(JwtService jwtService, UserRepository userRepository,
+                         com.connectly.presence.PresenceService presence) {
         this.jwtService = jwtService;
         this.userRepository = userRepository;
+        this.presence = presence;
     }
 
     @Override
@@ -42,6 +45,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
                     var auth = new UsernamePasswordAuthenticationToken(user, null, authorities);
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                     SecurityContextHolder.getContext().setAuthentication(auth);
+                    // Any authenticated request refreshes the user's "active now" status.
+                    presence.touch(userId);
                     // expose the session id for handlers that need "which device is this?"
                     Object sid = claims.get(JwtService.CLAIM_SESSION);
                     if (sid instanceof Number n) {

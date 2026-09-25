@@ -208,6 +208,36 @@ class FullApplicationUatTest {
         assertThat(ghost.getStatusCode().value()).isEqualTo(404);
     }
 
+    // ---------- 2b. dating-style profile fields ----------
+
+    @Test @Order(21)
+    void dating_profile_fields_round_trip_and_are_validated() {
+        // under-18 is refused (rolls back; nothing is persisted)
+        assertThat(put("/api/v1/users/me", Map.of("dateOfBirth", "2015-01-01"), atlasAccess)
+                .getStatusCode().value()).isEqualTo(400);
+        // arbitrary remote image URLs are rejected — only app-generated /media/* is allowed
+        assertThat(put("/api/v1/users/me", Map.of("profileImage", "https://evil.example/x.png"), atlasAccess)
+                .getStatusCode().value()).isEqualTo(400);
+
+        var upd = put("/api/v1/users/me", Map.of(
+                "firstName", "Atlas", "lastName", "Pilot", "bio", "I fly drones over Mumbai",
+                "profession", "Drone pilot",
+                "interests", " coffee , hiking ,, coffee ",
+                "lookingFor", "Coffee & good conversation",
+                "dateOfBirth", "1996-05-04",
+                "profileImage", "/media/uat-avatar.png"), atlasAccess);
+        assertThat(upd.getStatusCode().value()).isEqualTo(200);
+        // interests are normalized (trimmed, blanks dropped)
+        assertThat(String.valueOf(upd.getBody().get("interests"))).contains("coffee").contains("hiking");
+        assertThat(upd.getBody().get("profileImage")).isEqualTo("/media/uat-avatar.png");
+        // age is derived server-side, never accepted from the client
+        assertThat(((Number) upd.getBody().get("age")).intValue()).isGreaterThanOrEqualTo(28);
+
+        // the public profile exposes the discovery fields
+        var pub = get("/api/v1/users/" + atlasUsername, ravenAccess);
+        assertThat(String.valueOf(pub.getBody())).contains("Coffee & good conversation");
+    }
+
     // ---------- 3. posts: create, authz, edit, comment, like ----------
 
     @Test @Order(30)
@@ -556,6 +586,82 @@ class FullApplicationUatTest {
         assertThat(get("/api/v1/nearby?lat=19.1&lng=72.9&radiusKm=5000", atlasAccess).getStatusCode().value()).isEqualTo(400);
 
         put("/api/v1/users/me/discoverability", Map.of("discoverable", true), ravenAccess); // restore state for other tests
+    }
+
+    // ---------- 9b. Discover deck (dating) + Discord-style chat extras ----------
+
+    @Test @Order(91)
+    void discover_deck_ranks_shared_interests_and_skips_existing_matches() {
+        // a new person who shares atlas's interests, standing next door
+        registerVerified("comet");
+        String cometUsername = "comet" + run;
+        String cometAccess = login(cometUsername);
+        put("/api/v1/users/me", Map.of("firstName", "Comet", "interests", "coffee, hiking"), cometAccess);
+        put("/api/v1/users/me/location",
+                Map.of("latitude", 19.115, "longitude", 72.905, "discoverable", true), cometAccess);
+        // mole is nearby too, but shares nothing at all
+        put("/api/v1/users/me/location",
+                Map.of("latitude", 19.12, "longitude", 72.91, "discoverable", true), moleAccess);
+
+        var deck = getList("/api/v1/discover/suggestions?lat=19.11&lng=72.90&radiusKm=25", atlasAccess);
+        String body = String.valueOf(deck.getBody());
+        assertThat(body).contains(cometUsername);
+        // atlas and raven are already matched — raven belongs in Messages, not the deck
+        assertThat(body).doesNotContain(ravenUsername);
+        // comet shares two interests, so leads the deck
+        Map<String, Object> first = (Map<String, Object>) deck.getBody().get(0);
+        assertThat(String.valueOf(((Map<String, Object>) first.get("person")).get("username"))).isEqualTo(cometUsername);
+        assertThat(((Number) first.get("sharedInterests")).intValue()).isGreaterThanOrEqualTo(2);
+        // raw coordinates never appear in the payload
+        assertThat(body).doesNotContain("\"latitude\"");
+
+        // tidy up so other test classes see a stable world
+        put("/api/v1/users/me/discoverability", Map.of("discoverable", false), cometAccess);
+    }
+
+    @Test @Order(92)
+    @SuppressWarnings("unchecked")
+    void typing_indicators_and_message_reactions() {
+        // typing pings are participant-only
+        assertThat(postStatus("/api/v1/conversations/" + conversationId + "/typing", Map.of(), atlasAccess))
+                .isEqualTo(204);
+        assertThat(postStatus("/api/v1/conversations/" + conversationId + "/typing", Map.of(), moleAccess))
+                .isEqualTo(404);
+
+        var send = post("/api/v1/conversations/" + conversationId + "/messages",
+                Map.of("content", "react to me"), atlasAccess);
+        assertThat(send.getStatusCode().value()).isIn(200, 201);
+        long messageId = ((Number) send.getBody().get("id")).longValue();
+        assertThat(String.valueOf(send.getBody().get("reactions"))).isEqualTo("[]");
+
+        // raven reacts; the tally is theirs
+        var react = postListBody("/api/v1/messages/" + messageId + "/reactions", Map.of("emoji", "🔥"), ravenAccess);
+        assertThat(react.get(0)).containsEntry("emoji", "🔥").containsEntry("mine", true);
+        assertThat(((Number) react.get(0).get("count")).longValue()).isEqualTo(1);
+        // toggling the same emoji removes it
+        assertThat(postListBody("/api/v1/messages/" + messageId + "/reactions", Map.of("emoji", "🔥"), ravenAccess))
+                .isEmpty();
+        // put it back and check atlas sees it as someone else's
+        postListBody("/api/v1/messages/" + messageId + "/reactions", Map.of("emoji", "🔥"), ravenAccess);
+
+        List<Map<String, Object>> asAtlas =
+                (List<Map<String, Object>>) getList("/api/v1/conversations/" + conversationId + "/messages?size=50", atlasAccess).getBody();
+        Map<String, Object> target = asAtlas.stream()
+                .filter(x -> ((Number) x.get("id")).longValue() == messageId)
+                .findFirst().orElseThrow();
+        assertThat((List<Map<String, Object>>) target.get("reactions")).anySatisfy(r -> {
+            assertThat(r).containsEntry("emoji", "🔥");
+            assertThat(r).containsEntry("mine", false);
+        });
+
+        // outsiders cannot react at all
+        assertThat(postStatus("/api/v1/messages/" + messageId + "/reactions", Map.of("emoji", "🔥"), moleAccess))
+                .isEqualTo(404);
+
+        // request inbox badge counts
+        var summary = get("/api/v1/connections/summary", atlasAccess);
+        assertThat(summary.getStatusCode().value()).isEqualTo(200);
+        assertThat(((Number) summary.getBody().get("matches")).longValue()).isGreaterThanOrEqualTo(1);
     }
 
     // ---------- 10. notifications ----------

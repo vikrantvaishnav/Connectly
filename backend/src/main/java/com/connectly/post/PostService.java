@@ -255,6 +255,12 @@ public class PostService {
                 .toList();
     }
 
+    /** Public wrapper over the batched mapper so other services reuse one code path. */
+    @Transactional(readOnly = true)
+    public List<PostDtos.PostDto> mapForViewer(List<Post> posts, User viewer) {
+        return mapPosts(posts, viewer);
+    }
+
     private PostDtos.PostPage toPage(Page<Post> result, User viewer) {
         return new PostDtos.PostPage(mapPosts(result.getContent(), viewer),
                 result.getNumber(), result.getSize(), result.hasNext());

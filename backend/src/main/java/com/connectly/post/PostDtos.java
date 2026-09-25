@@ -23,11 +23,12 @@ public final class PostDtos {
             Long parentCommentId) {
     }
 
-    public record AuthorDto(long id, String username, String firstName, String lastName) {
+    public record AuthorDto(long id, String username, String firstName, String lastName, String profileImage) {
         public static AuthorDto from(com.connectly.user.User u, com.connectly.user.UserProfile p) {
             return new AuthorDto(u.getId(), u.getUsername(),
                     p != null ? p.getFirstName() : null,
-                    p != null ? p.getLastName() : null);
+                    p != null ? p.getLastName() : null,
+                    p != null ? p.getProfileImage() : null);
         }
     }
 

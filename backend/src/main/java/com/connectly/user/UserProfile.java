@@ -29,6 +29,18 @@ public class UserProfile {
     @Column(length = 500)
     private String bio;
 
+    /** App-relative media URL (e.g. /media/abc.jpg) — uploads go through MediaService. */
+    @Column(name = "profile_image", length = 500)
+    private String profileImage;
+
+    /** Comma-separated interest tags, e.g. "coffee, hiking, techno". */
+    @Column(length = 300)
+    private String interests;
+
+    /** Short intent line shown on discovery cards, e.g. "Coffee & good conversation". */
+    @Column(name = "looking_for", length = 60)
+    private String lookingFor;
+
     public Long getId() { return id; }
     public Long getUserId() { return userId; }
     public void setUserId(Long userId) { this.userId = userId; }
@@ -38,6 +50,12 @@ public class UserProfile {
     public void setLastName(String lastName) { this.lastName = lastName; }
     public String getBio() { return bio; }
     public void setBio(String bio) { this.bio = bio; }
+    public String getProfileImage() { return profileImage; }
+    public void setProfileImage(String profileImage) { this.profileImage = profileImage; }
+    public String getInterests() { return interests; }
+    public void setInterests(String interests) { this.interests = interests; }
+    public String getLookingFor() { return lookingFor; }
+    public void setLookingFor(String lookingFor) { this.lookingFor = lookingFor; }
 
     // referenced by migration for date_of_birth/profession columns; not exposed yet
     @Column(name = "date_of_birth")

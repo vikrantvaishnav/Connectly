@@ -49,6 +49,12 @@ public class SocialController {
         return social.listConnections(user, filter);
     }
 
+    /** Badge counts for the Requests/Matches inbox in the nav. */
+    @GetMapping("/connections/summary")
+    public SocialService.Summary connectionsSummary(@AuthenticationPrincipal User user) {
+        return social.summary(user);
+    }
+
     @PostMapping("/connections/requests/{id}/accept")
     public ResponseEntity<Void> accept(@AuthenticationPrincipal User user, @PathVariable long id) {
         social.accept(user, id);

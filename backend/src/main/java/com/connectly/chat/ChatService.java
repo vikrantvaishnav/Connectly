@@ -25,16 +25,18 @@ public class ChatService {
     private final ConversationRepository conversations;
     private final MessageRepository messages;
     private final ConversationStateRepository states;
+    private final MessageReactionRepository reactions;
     private final UserRepository users;
     private final UserProfileRepository profiles;
     private final ChatPusher pusher;
 
     public ChatService(ConversationRepository conversations, MessageRepository messages,
-                       ConversationStateRepository states, UserRepository users,
-                       UserProfileRepository profiles, ChatPusher pusher) {
+                       ConversationStateRepository states, MessageReactionRepository reactions,
+                       UserRepository users, UserProfileRepository profiles, ChatPusher pusher) {
         this.conversations = conversations;
         this.messages = messages;
         this.states = states;
+        this.reactions = reactions;
         this.users = users;
         this.profiles = profiles;
         this.pusher = pusher;
@@ -130,17 +132,50 @@ public class ChatService {
         Conversation conv = requireParticipant(me, conversationId);
         Pageable pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 100));
         // senders are join-fetched (see repository) — no per-message author query
-        return messages.findByConversationIdOrderByIdDesc(conv.getId(), pageable).stream()
-                .map(m -> toView(m, me.getId()))
+        List<Message> page1 = messages.findByConversationIdOrderByIdDesc(conv.getId(), pageable);
+        Map<Long, List<ReactionView>> byMessage = reactionsFor(page1, me.getId());
+        return page1.stream()
+                .map(m -> toView(m, me.getId(), byMessage.getOrDefault(m.getId(), List.of())))
                 .toList();
     }
 
     public record MessageView(Long id, Long senderId, String senderUsername,
-                              String content, Instant createdAt, boolean mine) {}
+                              String content, Instant createdAt, boolean mine,
+                              List<ReactionView> reactions) {}
 
-    private MessageView toView(Message m, Long meId) {
+    /** One emoji tally on a message; {@code mine} drives the highlighted chip. */
+    public record ReactionView(String emoji, long count, boolean mine) {}
+
+    private MessageView toView(Message m, Long meId, List<ReactionView> reactions) {
         return new MessageView(m.getId(), m.getSender().getId(), m.getSender().getUsername(),
-                m.getContent(), m.getCreatedAt(), m.getSender().getId().equals(meId));
+                m.getContent(), m.getCreatedAt(), m.getSender().getId().equals(meId), reactions);
+    }
+
+    /** Batched reaction tally for a page of messages (one query). */
+    private Map<Long, List<ReactionView>> reactionsFor(List<Message> page, Long meId) {
+        if (page.isEmpty()) return Map.of();
+        List<Long> ids = page.stream().map(Message::getId).toList();
+        // emoji -> count / do I have it, per message
+        Map<Long, Map<String, long[]>> tallies = new HashMap<>();
+        Map<Long, Set<String>> mine = new HashMap<>();
+        for (Object[] row : reactions.findAllFor(ids)) {
+            Long messageId = (Long) row[0];
+            Long userId = (Long) row[1];
+            String emoji = (String) row[2];
+            tallies.computeIfAbsent(messageId, k -> new java.util.LinkedHashMap<>())
+                    .computeIfAbsent(emoji, k -> new long[1])[0]++;
+            if (meId != null && meId.equals(userId)) {
+                mine.computeIfAbsent(messageId, k -> new HashSet<>()).add(emoji);
+            }
+        }
+        Map<Long, List<ReactionView>> out = new HashMap<>();
+        for (Map.Entry<Long, Map<String, long[]>> e : tallies.entrySet()) {
+            Set<String> myEmojis = mine.getOrDefault(e.getKey(), Set.of());
+            out.put(e.getKey(), e.getValue().entrySet().stream()
+                    .map(en -> new ReactionView(en.getKey(), en.getValue()[0], myEmojis.contains(en.getKey())))
+                    .toList());
+        }
+        return out;
     }
 
     @Transactional
@@ -169,7 +204,40 @@ public class ChatService {
 
         User other = conv.otherOf(me);
         pusher.pushNewMessage(other.getId(), conv.getId(), m.getId(), me.getId(), me.getUsername());
-        return toView(m, me.getId());
+        return toView(m, me.getId(), List.of());
+    }
+
+    /** Ephemeral typing notice — not stored, just relayed to the other participant. */
+    @Transactional(readOnly = true)
+    public void typing(User me, Long conversationId) {
+        Conversation conv = requireParticipant(me, conversationId);
+        User other = conv.otherOf(me);
+        pusher.pushTyping(other.getId(), conv.getId(), me.getId(), me.getUsername());
+    }
+
+    /** Toggles one emoji from the caller on a message; returns the message's new tallies. */
+    @Transactional
+    public List<ReactionView> toggleReaction(User me, Long messageId, String rawEmoji) {
+        String emoji = rawEmoji == null ? "" : rawEmoji.strip();
+        if (emoji.isEmpty() || emoji.length() > 16) {
+            throw ApiException.badRequest("Pick a single emoji");
+        }
+        Message m = messages.findById(messageId)
+                .orElseThrow(() -> ApiException.notFound("Message not found"));
+        Conversation conv = requireParticipant(me, m.getConversation().getId());
+
+        reactions.findByMessageIdAndUserIdAndEmoji(messageId, me.getId(), emoji).ifPresentOrElse(
+                reactions::delete,
+                () -> {
+                    MessageReaction r = new MessageReaction();
+                    r.setMessage(m);
+                    r.setUser(me);
+                    r.setEmoji(emoji);
+                    reactions.save(r);
+                });
+
+        pusher.pushReaction(conv.otherOf(me).getId(), conv.getId(), messageId);
+        return reactionsFor(List.of(m), me.getId()).getOrDefault(messageId, List.of());
     }
 
     private static String summarize(String body) {

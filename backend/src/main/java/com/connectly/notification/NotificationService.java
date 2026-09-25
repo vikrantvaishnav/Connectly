@@ -35,14 +35,13 @@ public class NotificationService {
     public record NotificationView(Long id, String type, Long actorId, String actorUsername, String actorName,
                                    String entityType, Long entityId, boolean read, Instant createdAt) {}
 
-    private NotificationView toView(Notification n) {
+    private NotificationView toView(Notification n, UserProfile actorProfile) {
         String username = null;
         String name = null;
         if (n.getActor() != null) {
             username = n.getActor().getUsername();
-            UserProfile p = profiles.findByUserId(n.getActor().getId()).orElse(null);
-            name = p == null ? username
-                    : java.util.stream.Stream.of(p.getFirstName(), p.getLastName())
+            name = actorProfile == null ? null
+                    : java.util.stream.Stream.of(actorProfile.getFirstName(), actorProfile.getLastName())
                         .filter(s -> s != null && !s.isBlank())
                         .collect(Collectors.joining(" "));
             if (name == null || name.isBlank()) name = username;
@@ -70,7 +69,22 @@ public class NotificationService {
     @Transactional(readOnly = true)
     public List<NotificationView> list(User me, int page, int size) {
         var pageable = PageRequest.of(Math.max(page, 0), Math.min(Math.max(size, 1), 50));
-        return notifications.findByRecipientIdOrderByIdDesc(me.getId(), pageable).stream().map(this::toView).toList();
+        List<Notification> rows = notifications.findByRecipientIdOrderByIdDesc(me.getId(), pageable);
+        // One batched profile load for every actor on the page (was one query each).
+        java.util.Map<Long, UserProfile> profileById = new java.util.HashMap<>();
+        List<Long> actorIds = rows.stream()
+                .filter(n -> n.getActor() != null)
+                .map(n -> n.getActor().getId())
+                .distinct()
+                .toList();
+        if (!actorIds.isEmpty()) {
+            for (UserProfile p : profiles.findByUserIdIn(actorIds)) {
+                profileById.put(p.getUserId(), p);
+            }
+        }
+        return rows.stream()
+                .map(n -> toView(n, n.getActor() == null ? null : profileById.get(n.getActor().getId())))
+                .toList();
     }
 
     @Transactional(readOnly = true)

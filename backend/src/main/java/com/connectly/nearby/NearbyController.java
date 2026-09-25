@@ -6,6 +6,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -47,13 +48,27 @@ public class NearbyController {
     public List<NearbyService.NearbyHit> nearby(@AuthenticationPrincipal User me,
                                                 double lat,
                                                 double lng,
-                double radiusKm) {
+                                                double radiusKm) {
+        validate(lat, lng, radiusKm);
+        return nearby.findNearby(me, lat, lng, radiusKm);
+    }
+
+    /** Dating-style discovery deck — ranked people nearby, already-connected people excluded. */
+    @GetMapping("/discover/suggestions")
+    public List<NearbyService.DiscoverCard> suggestions(@AuthenticationPrincipal User me,
+                                                        double lat,
+                                                        double lng,
+                                                        @RequestParam(defaultValue = "50") double radiusKm) {
+        validate(lat, lng, radiusKm);
+        return nearby.suggestions(me, lat, lng, radiusKm);
+    }
+
+    private static void validate(double lat, double lng, double radiusKm) {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
             throw com.connectly.common.error.ApiException.badRequest("Coordinates out of range");
         }
         if (radiusKm < 1 || radiusKm > 50) {
             throw com.connectly.common.error.ApiException.badRequest("Radius must be between 1 and 50 km");
         }
-        return nearby.findNearby(me, lat, lng, radiusKm);
     }
 }

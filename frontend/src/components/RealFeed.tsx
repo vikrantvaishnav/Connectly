@@ -11,6 +11,7 @@ interface Author {
   username: string
   firstName: string | null
   lastName: string | null
+  profileImage: string | null
 }
 
 export interface RealPost {
@@ -84,7 +85,7 @@ export function RealPostCard({ post, showSave = true }: RealPostCardProps) {
   return (
     <article className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-4">
       <header className="flex items-center gap-3">
-        <Avatar name={displayName(post.author)} id={String(post.author.id)} size="md" />
+        <Avatar name={displayName(post.author)} id={String(post.author.id)} size="md" src={post.author.profileImage} />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold">{displayName(post.author)}</p>
           <p className="text-xs text-[var(--muted)]">@{post.author.username} · {timeAgo(post.createdAt)}</p>
@@ -138,7 +139,7 @@ export function RealPostCard({ post, showSave = true }: RealPostCardProps) {
           {comments.data?.length === 0 && <p className="text-xs text-[var(--muted)]">No comments yet.</p>}
           {comments.data?.map((c: { id: number; author: Author; content: string }) => (
             <div key={c.id} className="flex gap-2">
-              <Avatar name={displayName(c.author)} id={String(c.author.id)} size="xs" />
+              <Avatar name={displayName(c.author)} id={String(c.author.id)} size="xs" src={c.author.profileImage} />
               <p className="text-sm">
                 <span className="font-semibold">{displayName(c.author)}</span>{' '}
                 <span className="text-[var(--muted)]">{c.content}</span>

@@ -7,6 +7,8 @@ import { VoiceRoomsPanel } from './components/VoiceRooms'
 import { HomePage } from './pages/HomePage'
 import { ExplorePage } from './pages/ExplorePage'
 import { NearbyPage } from './pages/NearbyPage'
+import { DiscoverPage } from './pages/DiscoverPage'
+import { RequestsPage } from './pages/RequestsPage'
 import { MessagesPage } from './pages/MessagesPage'
 import { CommunitiesPage } from './pages/CommunitiesPage'
 import { CommunityDetailPage } from './pages/CommunityDetailPage'
@@ -58,6 +60,8 @@ export default function App() {
           <Route path="/home" element={<HomePage />} />
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/nearby" element={<NearbyPage />} />
+          <Route path="/discover" element={<DiscoverPage />} />
+          <Route path="/requests" element={<RequestsPage />} />
           <Route path="/voice" element={<VoiceRoomsPanel />} />
           <Route path="/messages" element={<MessagesPage />} />
           <Route path="/messages/:conversationId" element={<MessagesPage />} />

@@ -6,9 +6,14 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface PostRepository extends JpaRepository<Post, Long> {
+
+    /** Fetch a set of posts with authors joined — used by saved/collections views. */
+    @Query("select p from Post p join fetch p.author where p.id in :ids")
+    List<Post> findAllWithAuthorByIdIn(@Param("ids") Collection<Long> ids);
 
     /** Authors are join-fetched: rendering a page costs 1 query, not 1+N. */
     @Query("""
