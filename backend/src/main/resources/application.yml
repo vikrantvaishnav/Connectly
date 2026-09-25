@@ -85,8 +85,11 @@ app:
     verify-email: 10/300
 
   mail:
-    mode: ${MAIL_MODE:log}   # log | smtp
+    mode: ${MAIL_MODE:log}   # log | smtp | brevo-api
     from: ${MAIL_FROM:Connectly <no-reply@connectly.local>}
+    # Brevo HTTP API key (mode=brevo-api). Runs over 443 — immune to SMTP
+    # port blocks and Brevo's SMTP IP allowlist. Never commit the real key.
+    brevo-api-key: ${BREVO_API_KEY:}
     # Base URL used in verification / reset links sent by email.
     public-base-url: ${MAIL_PUBLIC_BASE_URL:http://localhost:5173}
 

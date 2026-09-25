@@ -21,7 +21,7 @@ public record JwtProperties(
 
     public record RateLimit(String login, String register, String forgotPassword, String resetPassword, String verifyEmail) {}
 
-    public record Mail(String mode, String from, String publicBaseUrl) {}
+    public record Mail(String mode, String from, String publicBaseUrl, String brevoApiKey) {}
 
     public record Oauth(Google google) {
         public record Google(boolean enabled, String clientId, String clientSecret) {}
