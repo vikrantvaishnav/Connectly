@@ -64,7 +64,8 @@ export function RealNearby() {
     queryKey: ['nearby', geo.lat, geo.lng, radius],
     queryFn: async () =>
       (await api.get<NearbyHit[]>(`/nearby?lat=${geo.lat}&lng=${geo.lng}&radiusKm=${radius}`)).data,
-    enabled: !!authUser,
+    // Only query (and only ever store) a real granted position.
+    enabled: !!authUser && geo.status === 'granted' && geo.lat != null && geo.lng != null,
   })
 
   // Relationship state now comes from the server on each card — one request, not four.
@@ -90,12 +91,16 @@ export function RealNearby() {
   })
 
   const shareLocation = useMutation({
-    mutationFn: () =>
-      api.put<NearbyStatus>('/users/me/location', {
+    mutationFn: () => {
+      if (geo.lat == null || geo.lng == null) {
+        return Promise.reject(new Error('no-coordinates'))
+      }
+      return api.put<NearbyStatus>('/users/me/location', {
         latitude: geo.lat,
         longitude: geo.lng,
         discoverable: true,
-      }),
+      })
+    },
     onSuccess: (res) => {
       setDiscoverable(res.data.discoverable)
       pushToast('Location shared — you are now discoverable', '📍')

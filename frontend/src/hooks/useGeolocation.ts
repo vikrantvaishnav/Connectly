@@ -1,14 +1,13 @@
 import { useCallback } from 'react'
 import { useAppStore } from '../store/appStore'
 
-const FALLBACK = { lat: 19.1176, lng: 72.906, accuracyKm: 0.5 }
-
 /**
- * Geolocation with graceful degradation:
- * - Checks the Permissions API first (denied ⇒ instant fallback, no hanging request)
- * - Real permission flow when the browser supports it
+ * Geolocation with honest degradation:
+ * - Checks the Permissions API first (denied ⇒ instant stop, no hanging request)
  * - JS watchdog so the UI can never get stuck on "Requesting…"
- * - Demo-location fallback (Powai, Mumbai) keeps the Nearby page functional
+ * - No fake fallback position: if the user doesn't grant permission, geo stays
+ *   null and Nearby/Discover simply ask for a real location. Nothing is ever
+ *   stored server-side without an explicit grant.
  */
 export function useGeolocation() {
   const geo = useAppStore((s) => s.geo)
@@ -17,25 +16,24 @@ export function useGeolocation() {
 
   const requestLocation = useCallback(() => {
     if (!('geolocation' in navigator)) {
-      setGeo({ status: 'unavailable', ...FALLBACK })
-      pushToast('Geolocation not supported — using demo location', '🧪')
+      setGeo({ status: 'unavailable', lat: null, lng: null, accuracyKm: null })
+      pushToast('Geolocation is not supported by this browser', '🧭')
       return
     }
 
-    setGeo({ status: 'prompt', ...FALLBACK })
+    setGeo({ status: 'prompt', lat: null, lng: null, accuracyKm: null })
 
     const finish = (status: 'granted' | 'denied' | 'unavailable', coords?: { lat: number; lng: number; accuracyKm: number }) => {
       if (watchdog) clearTimeout(watchdog)
       if (status === 'granted' && coords) {
         setGeo({ status, ...coords })
-        pushToast('Location updated — Nearby refreshed', '📍')
       } else {
-        setGeo({ status, ...FALLBACK })
+        setGeo({ status, lat: null, lng: null, accuracyKm: null })
         pushToast(
           status === 'denied'
-            ? 'Location permission denied — showing demo location instead'
-            : 'Location unavailable — showing demo location instead',
-          '🧪',
+            ? 'Location permission denied — Nearby needs it to find people around you'
+            : 'Location unavailable — check your browser settings and try again',
+          '🧭',
         )
       }
     }

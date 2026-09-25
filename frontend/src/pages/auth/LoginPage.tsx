@@ -123,10 +123,6 @@ export function LoginPage() {
             </div>
           </>
         )}
-
-        <p className="mt-6 text-center text-xs text-[var(--muted)]">
-          <Link to="/home" className="hover:text-[var(--text)]">Browse demo mode →</Link>
-        </p>
       </div>
     </div>
   )

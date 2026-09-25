@@ -40,7 +40,8 @@ export function DiscoverPage() {
       (await api.get<DiscoverCard[]>(
         `/discover/suggestions?lat=${geo.lat}&lng=${geo.lng}&radiusKm=${radius}`,
       )).data,
-    enabled: !!authUser,
+    // Only run with a real granted position — never a fallback.
+    enabled: !!authUser && geo.status === 'granted' && geo.lat != null && geo.lng != null,
   })
 
   const cards = useMemo(() => deck.data ?? [], [deck.data])
@@ -68,9 +69,14 @@ export function DiscoverPage() {
   })
 
   const shareLocation = useMutation({
-    mutationFn: () => api.put('/users/me/location', {
-      latitude: geo.lat, longitude: geo.lng, discoverable: true,
-    }),
+    mutationFn: () => {
+      if (geo.lat == null || geo.lng == null) {
+        return Promise.reject(new Error('no-coordinates'))
+      }
+      return api.put('/users/me/location', {
+        latitude: geo.lat, longitude: geo.lng, discoverable: true,
+      })
+    },
     onSuccess: () => {
       pushToast('Location shared — Discover just got much better', '📍')
       queryClient.invalidateQueries({ queryKey: ['nearby-status'] })

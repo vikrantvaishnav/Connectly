@@ -1,5 +1,7 @@
 import { NavLink } from 'react-router-dom'
-import { useAppStore } from '../store/appStore'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../lib/api'
+import { useAuthStore } from '../store/authStore'
 import { useConnectionSummary } from '../hooks/useConnectionSummary'
 
 const navItems = [
@@ -17,21 +19,36 @@ const navItems = [
 ]
 
 export function Sidebar() {
-  const conversations = useAppStore((s) => s.conversations)
-  const notifications = useAppStore((s) => s.notifications)
+  const authUser = useAuthStore((s) => s.user)
+
+  // All badges come from the live API now — there is no demo state to fall back to.
   const summary = useConnectionSummary()
-  const unreadMsgs = conversations.reduce((n, c) => n + c.unread, 0)
-  const unreadNotifs = notifications.filter((n) => !n.read).length
-  const pendingRequests = summary.data?.incoming ?? 0
+  const unreadMsgs = useQuery({
+    queryKey: ['sidebar-unread-msgs'],
+    queryFn: async () => {
+      const convs = await api.get<{ unread: number }[]>('/conversations')
+      return convs.data.reduce((n, c) => n + c.unread, 0)
+    },
+    enabled: !!authUser,
+    refetchInterval: 30_000,
+  })
+  const unreadNotifs = useQuery({
+    queryKey: ['topbar-unread'],
+    queryFn: async () => (await api.get<{ count: number }>('/notifications/unread-count')).data.count,
+    enabled: !!authUser,
+    refetchInterval: 15_000,
+  })
+
+  const badges: Record<string, number> = {
+    requests: summary.data?.incoming ?? 0,
+    messages: unreadMsgs.data ?? 0,
+    notifications: unreadNotifs.data ?? 0,
+  }
 
   return (
     <nav className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-[var(--border)] p-3 md:flex">
       {navItems.map((item) => {
-        const badge =
-          item.badge === 'messages' ? unreadMsgs
-            : item.badge === 'notifications' ? unreadNotifs
-              : item.badge === 'requests' ? pendingRequests
-                : 0
+        const badge = item.badge ? (badges[item.badge] ?? 0) : 0
         return (
           <NavLink
             key={item.to}

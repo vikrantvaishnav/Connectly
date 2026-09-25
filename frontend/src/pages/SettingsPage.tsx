@@ -4,7 +4,6 @@ import { api, apiErrorMessage } from '../lib/api'
 import { useAppStore } from '../store/appStore'
 import { Avatar } from '../components/Avatar'
 import { useAuthStore } from '../store/authStore'
-import { CURRENT_USER_ID } from '../data/demo'
 
 function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: () => void; label: string; hint?: string }) {
   return (
@@ -31,12 +30,7 @@ function Toggle({ on, onChange, label, hint }: { on: boolean; onChange: () => vo
 export function SettingsPage() {
   const theme = useAppStore((s) => s.theme)
   const toggleTheme = useAppStore((s) => s.toggleTheme)
-  const users = useAppStore((s) => s.users)
-  const blockedUserIds = useAppStore((s) => s.blockedUserIds)
-  const toggleBlock = useAppStore((s) => s.toggleBlock)
   const pushToast = useAppStore((s) => s.pushToast)
-  const me = users.find((u) => u.id === CURRENT_USER_ID)
-  const blockedUsers = users.filter((u) => blockedUserIds.includes(u.id))
   const authUser = useAuthStore((s) => s.user)
   const [discoverable, setDiscoverable] = useState(false)
 
@@ -55,19 +49,25 @@ export function SettingsPage() {
       {/* Account */}
       <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Account</h2>
-        {me && (
+        {authUser ? (
           <div className="flex items-center gap-3">
-            <Avatar name={me.name} id={me.id} size="lg" online />
+            <Avatar name={authUser.username} id={String(authUser.id)} size="lg" />
             <div>
-              <p className="font-semibold">{me.name}</p>
-              <p className="text-sm text-[var(--muted)]">@{me.username} · demo account</p>
+              <p className="font-semibold">@{authUser.username}</p>
+              <p className="text-sm text-[var(--muted)]">
+                {authUser.emailVerified ? 'Email verified ✓' : 'Email not verified'}
+              </p>
             </div>
           </div>
+        ) : (
+          <p className="text-sm text-[var(--muted)]">
+            <Link to="/login" className="text-indigo-400 hover:underline">Sign in</Link> to manage your
+            account, privacy and security.
+          </p>
         )}
         <p className="mt-3 text-xs text-[var(--muted)]">
-          {authUser
-            ? 'Manage your email, password and account security from the Security settings.'
-            : 'Create an account to manage your profile, security and privacy.'}
+          Manage your email, password and account security from the{' '}
+          <Link to="/settings/security" className="text-indigo-400 hover:underline">Security settings</Link>.
         </p>
       </section>
 
@@ -101,7 +101,7 @@ export function SettingsPage() {
           on={theme === 'dark'}
           onChange={toggleTheme}
           label="Dark mode"
-          hint="Currently wired to the live theme system"
+          hint="Applies instantly across the app"
         />
       </section>
 
@@ -127,45 +127,9 @@ export function SettingsPage() {
             <Toggle on={false} onChange={() => pushToast('Private accounts arrive soon 🔒')} label="Private account" hint="Approve followers manually" />
           </>
         ) : (
-          <>
-            <Toggle on onChange={() => pushToast('Sign in to manage privacy 🔒')} label="Discoverable nearby" hint="Let people near you see you in Nearby" />
-            <Toggle on onChange={() => pushToast('Sign in to manage privacy 🔒')} label="Show approximate distance" hint="Never your exact coordinates" />
-            <Toggle on={false} onChange={() => pushToast('Sign in to manage privacy 🔒')} label="Private account" hint="Approve followers manually" />
-          </>
+          <p className="py-3 text-sm text-[var(--muted)]">Sign in to manage who can discover you.</p>
         )}
       </section>
-
-      {/* Blocked users */}
-      <section className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] p-5">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--muted)]">Blocked users</h2>
-        {blockedUsers.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">
-            No blocked users. Block someone from their profile to test this.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {blockedUsers.map((u) => (
-              <div key={u.id} className="flex items-center gap-3 rounded-xl bg-[var(--surface-2)] p-3">
-                <Avatar name={u.name} id={u.id} size="sm" />
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{u.name}</p>
-                  <p className="text-xs text-[var(--muted)]">@{u.username}</p>
-                </div>
-                <button
-                  onClick={() => toggleBlock(u.id)}
-                  className="rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--accent-hover)]"
-                >
-                  Unblock
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <p className="pb-6 text-center text-xs text-[var(--muted)]">
-        Connectly demo · Security, notification and appearance settings become fully persistable in Phase 2+.
-      </p>
     </div>
   )
 }
