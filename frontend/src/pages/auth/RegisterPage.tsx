@@ -62,8 +62,8 @@ export function RegisterPage() {
         email: form.email.toLowerCase(),
         password: form.password,
       })
-      pushToast('Account created! Check the backend console (log-mail mode) for your verification link.', '📬')
-      navigate('/verify-email/pending')
+      pushToast('Welcome to Connectly! 🎉', '✅')
+      navigate('/home')
     } catch (err) {
       setErrors({ server: apiErrorMessage(err) })
     } finally {

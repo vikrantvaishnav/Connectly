@@ -36,10 +36,20 @@ public class AuthController {
     // ---------- public ----------
 
     @PostMapping("/register")
-    public ResponseEntity<AuthDtos.UserDto> register(@Valid @RequestBody AuthDtos.RegisterRequest req,
+    public ResponseEntity<AuthDtos.AuthResponse> register(@Valid @RequestBody AuthDtos.RegisterRequest req,
             HttpServletRequest http) {
         limit(http, "register", props.rateLimit().register());
-        return ResponseEntity.status(201).body(authService.register(req, http));
+        // Returns a full session: registration logs you in, so a lost/undelivered
+        // verification email can never lock someone out of the account they made.
+        return ResponseEntity.status(201).body(authService.registerAndLogin(req, http).auth());
+    }
+
+    /** Re-send the verification email for the signed-in account. */
+    @PostMapping("/resend-verification")
+    public AuthDtos.MessageResponse resendVerification(@AuthenticationPrincipal User me,
+                                                       HttpServletRequest http) {
+        limit(http, "resend-verification", "3/300");
+        return authService.resendVerification(me);
     }
 
     @PostMapping("/login")

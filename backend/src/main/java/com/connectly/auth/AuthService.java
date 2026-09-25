@@ -105,6 +105,34 @@ public class AuthService {
         return AuthDtos.UserDto.from(user);
     }
 
+    /** Auto-login payload for a fresh registration — nobody should be stuck at a "check your email" wall. */
+    public record RegisterResult(AuthDtos.UserDto user, AuthDtos.AuthResponse auth) {}
+
+    /**
+     * Registers the account, emails the verification link, and returns a full
+     * session so the client can go straight into the app. Verification stays
+     * enforced later per-feature (e.g. password recovery needs a verified email).
+     */
+    @Transactional
+    public RegisterResult registerAndLogin(AuthDtos.RegisterRequest req, HttpServletRequest http) {
+        AuthDtos.UserDto user = register(req, http);
+        User fresh = findByIdentifier(user.username()).orElseThrow();
+        return new RegisterResult(user, issueTokens(fresh, http));
+    }
+
+    /**
+     * Re-sends the verification email for the signed-in account. Idempotent and
+     * deliberately vague when already verified (no information leak).
+     */
+    @Transactional
+    public AuthDtos.MessageResponse resendVerification(User me) {
+        if (me.isEmailVerified()) {
+            return new AuthDtos.MessageResponse("Email already verified.");
+        }
+        issueEmailToken(me, AuthToken.Type.VERIFY_EMAIL, Duration.ofHours(24));
+        return new AuthDtos.MessageResponse("Verification email sent.");
+    }
+
     @Transactional
     public AuthDtos.MessageResponse verifyEmail(AuthDtos.VerifyEmailRequest req) {
         AuthToken token = requireUsableToken(req.token(), AuthToken.Type.VERIFY_EMAIL);

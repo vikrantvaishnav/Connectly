@@ -78,7 +78,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   register: async (input) => {
-    await api.post('/auth/register', input)
+    // Registration now returns a full session (auto-login), so a lost or
+    // undelivered verification email can never lock someone out.
+    const res = await api.post<{ accessToken: string; refreshToken: string; user: AuthUser }>(
+      '/auth/register',
+      input,
+    )
+    applyTokens(res.data)
+    set({ user: res.data.user })
   },
 
   setUser: (user) => set({ user }),
