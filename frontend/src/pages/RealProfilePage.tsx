@@ -75,20 +75,22 @@ export function RealProfilePage({ own }: { own?: boolean }) {
   const [editing, setEditing] = useState(false)
 
   const saveProfile = useMutation({
-    mutationFn: () => api.put('/users/me', {
-      firstName: profile.data?.firstName,
-      lastName: profile.data?.lastName,
-      bio,
-      profession,
-      interests,
-      lookingFor,
-      dateOfBirth: dob || null,
-      profileImage: photo,
-    }),
+    mutationFn: () =>
+      api.put('/users/me', {
+        firstName: profile.data?.firstName,
+        lastName: profile.data?.lastName,
+        bio,
+        profession,
+        interests,
+        lookingFor,
+        dateOfBirth: dob || null,
+        profileImage: photo,
+      }),
     onSuccess: () => {
       setEditing(false)
       queryClient.invalidateQueries({ queryKey: ['real-profile', effectiveUsername] })
-      pushToast('Profile updated', '✅')
+      queryClient.invalidateQueries({ queryKey: ['auth-me'] })
+      pushToast('Profile saved ✓', '✅')
     },
     onError: (e) => pushToast(apiErrorMessage(e), '⚠️'),
   })
@@ -108,6 +110,8 @@ export function RealProfilePage({ own }: { own?: boolean }) {
       setUploading(false)
     }
   }
+
+  const logout = useAuthStore((s) => s.logout)
 
   const startEditing = () => {
     const p0 = profile.data
@@ -266,13 +270,23 @@ export function RealProfilePage({ own }: { own?: boolean }) {
                   className="mt-1 w-full rounded-xl border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-[var(--text)] outline-none focus:border-[var(--accent)]"
                 />
               </label>
-              <button
-                onClick={() => saveProfile.mutate()}
-                disabled={saveProfile.isPending || uploading}
-                className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-40"
-              >
-                {saveProfile.isPending ? 'Saving…' : 'Save'}
-              </button>
+              {/* Upload status is stated ON the button: while a photo is uploading
+                  the save is blocked, and previously it sat there silently disabled. */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => saveProfile.mutate()}
+                  disabled={saveProfile.isPending || uploading}
+                  className="rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--accent-hover)] disabled:opacity-40"
+                >
+                  {uploading ? 'Uploading photo…' : saveProfile.isPending ? 'Saving…' : 'Save profile'}
+                </button>
+                {uploading && (
+                  <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                    <span className="h-3 w-3 animate-spin rounded-full border-2 border-[var(--border)] border-t-indigo-400" />
+                    finishing upload — save unlocks in a moment
+                  </span>
+                )}
+              </div>
             </div>
           ) : (
             <div className="mt-2 space-y-2">
@@ -297,6 +311,26 @@ export function RealProfilePage({ own }: { own?: boolean }) {
             <span><strong>{p.followerCount}</strong> <span className="text-[var(--muted)]">followers</span></span>
             <span><strong>{p.followingCount}</strong> <span className="text-[var(--muted)]">following</span></span>
           </div>
+
+          {isMe && (
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <Link
+                to="/settings"
+                className="rounded-xl border border-[var(--border)] px-4 py-2 text-sm font-medium hover:bg-[var(--surface-2)]"
+              >
+                ⚙️ Settings
+              </Link>
+              <button
+                onClick={async () => {
+                  await logout()
+                  navigate('/login')
+                }}
+                className="rounded-xl border border-rose-500/40 px-4 py-2 text-sm font-medium text-rose-400 transition-colors hover:bg-rose-500/10"
+              >
+                Log out
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

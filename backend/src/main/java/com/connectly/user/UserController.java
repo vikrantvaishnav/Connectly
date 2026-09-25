@@ -94,17 +94,20 @@ public class UserController {
             fresh.setUserId(me.getId());
             return fresh;
         });
-        p.setFirstName(req.firstName());
-        p.setLastName(req.lastName());
-        p.setBio(req.bio());
-        p.setProfession(req.profession());
-        p.setInterests(normalizeInterests(req.interests()));
-        p.setLookingFor(blankToNull(req.lookingFor()));
+        // null = "leave unchanged" so partial updates never wipe existing data;
+        // an empty string clears the field. (Earlier builds wrote nulls straight
+        // through, which erased fields on partial saves.)
+        if (req.firstName() != null) p.setFirstName(blankToNull(req.firstName()));
+        if (req.lastName() != null) p.setLastName(blankToNull(req.lastName()));
+        if (req.bio() != null) p.setBio(blankToNull(req.bio()));
+        if (req.profession() != null) p.setProfession(blankToNull(req.profession()));
+        if (req.interests() != null) p.setInterests(normalizeInterests(req.interests()));
+        if (req.lookingFor() != null) p.setLookingFor(blankToNull(req.lookingFor()));
         if (req.profileImage() != null) {
             p.setProfileImage(blankToNull(req.profileImage()));
         }
         if (req.dateOfBirth() != null) {
-            p.setDateOfBirth(parseDob(req.dateOfBirth()));
+            p.setDateOfBirth(req.dateOfBirth().isBlank() ? null : parseDob(req.dateOfBirth()));
         }
         profiles.save(p);
         return profile(me, me.getUsername());

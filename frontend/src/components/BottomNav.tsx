@@ -1,6 +1,8 @@
 import { NavLink } from 'react-router-dom'
 
-// Mobile navigation: Home, Discover, Nearby, Messages, Profile
+// Mobile navigation: Home, Discover, Nearby, Messages, Profile.
+// Profile is the last item; Settings (and from there, logout) stays reachable
+// via the ⚙️ that appears on the profile page on small screens.
 const navItems = [
   { to: '/home', label: 'Home', icon: '🏠' },
   { to: '/discover', label: 'Discover', icon: '💘' },
